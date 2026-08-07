@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	cryptorand "crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/pilot-protocol/common/consent"
+	"github.com/pilot-protocol/common/decision"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/protocol"
 	registry "github.com/pilot-protocol/common/registry/client"
@@ -869,6 +871,7 @@ func hasHelpFlag(args []string) bool {
 // commandHelp holds concise usage text for each command. Looked up by
 // printCommandHelp when the user passes -h / --help after a command name.
 var commandHelp = map[string]string{
+	"enterprise": enterpriseHelpText,
 	"send-message": `Usage: pilotctl send-message <address|hostname> --data <text> [flags]
 
 Send a message to a remote agent and optionally wait for the reply.
@@ -881,6 +884,8 @@ Flags:
   --wait [<dur>]        wait for a reply in the inbox (default timeout: 30s)
   --trace               print per-step timing breakdown to stderr
   --no-auto-handshake   skip automatic trust handshake with known agents
+  --enterprise-control <path>  request a signed enterprise decision before sending
+  --governed-resource <resource> exact receiver-owned resource bound in that decision
 
 Examples:
   pilotctl send-message list-agents --data '/data {"search":"weather","limit":5}'
@@ -1050,6 +1055,7 @@ Flags:
   --wait <duration>            how long to wait for daemon to become ready (default: 15s)
   --motd-feed-url <url>        message-of-the-day feed (empty to disable; env PILOT_MOTD_URL)
   --motd-interval <duration>   message-of-the-day poll interval (default: 15m)
+  --enterprise-control <path>  owner-only managed control attachment
 `,
 	"daemon stop": `Usage: pilotctl daemon stop
 
@@ -1530,7 +1536,7 @@ Communication commands:
   pilotctl connect <address|hostname> [port] [--message <msg>] [--timeout <dur>]
   pilotctl send <address|hostname> <port> --data <msg> [--timeout <dur>]
   pilotctl recv <port> [--count <n>] [--timeout <dur>]
-  pilotctl send-file <address|hostname> <filepath>
+  pilotctl send-file <address|hostname> <filepath> [--enterprise-control <path> --governed-resource <resource>]
   pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--count <n>] [--reuse-conn] [--wait <dur>]
   pilotctl dgram <address|hostname> <port> --data <msg>
   pilotctl subscribe <address|hostname> <topic> [--count <n>] [--timeout <dur>]
@@ -1588,6 +1594,7 @@ Updates:
   pilotctl updates [--count <n>] [--scope <scope>]        read the Pilot changelog feed
 
 Operator / admin (run 'pilotctl extras' or 'pilotctl context' for the full list):
+  pilotctl enterprise status|dashboard-url|policy|mandate|receipt --endpoint <URL> --tenant <tenant>  inspect or submit signed enterprise control state
   pilotctl extras <cmd>              network / managed / policy / member-tags / enterprise / low-level plumbing
   pilotctl extras gateway start|stop|map|unmap|list       IP gateway (requires root — creates loopback interface aliases)
 
@@ -1703,6 +1710,10 @@ dispatch:
 
 	case "review":
 		cmdReview(cmdArgs)
+		return
+
+	case "enterprise":
+		cmdEnterprise(cmdArgs)
 		return
 
 	// Bootstrap
@@ -2727,6 +2738,12 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adm
 		}
 	}
 	trustAutoApprove := flagBool(flags, "trust-auto-approve")
+	enterpriseControl := flagString(flags, "enterprise-control", "")
+	if enterpriseControl == "" {
+		if value, ok := cfg["enterprise_control"].(string); ok {
+			enterpriseControl = strings.TrimSpace(value)
+		}
+	}
 
 	daemonArgs = []string{
 		"--registry", registryAddr,
@@ -2764,6 +2781,9 @@ func buildDaemonArgs(args []string) (daemonArgs []string, socketPath string, adm
 	}
 	if trustAutoApprove {
 		daemonArgs = append(daemonArgs, "--trust-auto-approve")
+	}
+	if enterpriseControl != "" {
+		daemonArgs = append(daemonArgs, "--enterprise-control", enterpriseControl)
 	}
 	return daemonArgs, socketPath, adminToken
 }
@@ -4257,6 +4277,10 @@ func cmdSendFile(args []string) {
 		fatalCode("invalid_argument", "%s is a directory, not a file", filePath)
 	}
 	size := fi.Size()
+	governedOutbound, governedErr := governedOutboundFromFlags(flags)
+	if governedErr != nil {
+		fatalCode("invalid_argument", "governed send-file: %v", governedErr)
+	}
 
 	// Streamed transfer (default): chunked, ACK'd, resumable, end-to-end
 	// SHA-256 verified — no per-frame size cap, and big files no longer
@@ -4265,9 +4289,11 @@ func cmdSendFile(args []string) {
 	// the single-frame TypeFile path when the receiver is too old to
 	// understand TypeFileStream (it never sends an INIT-ACK).
 	if !flagBool(flags, "no-stream") {
-		if res, serr := streamSendFile(d, target, filePath, filename, size, timeout); serr == nil {
+		if res, serr := streamSendFile(d, target, filePath, filename, size, timeout, governedOutbound); serr == nil {
 			outputOK(res)
 			return
+		} else if governedOutbound != nil && errors.Is(serr, dataexchange.ErrStreamUnsupported) {
+			fatalCode("connection_failed", "governed send-file requires a receiver that supports governed streaming; refusing legacy fallback")
 		} else if !errors.Is(serr, dataexchange.ErrStreamUnsupported) {
 			fatalHint("connection_failed",
 				"check reachability: pilotctl ping "+target.String()+" · for very large/slow links raise --timeout",
@@ -4310,7 +4336,27 @@ func cmdSendFile(args []string) {
 	stop := startWaitProgress(fmt.Sprintf("sending %s to %s", filename, target))
 	start := time.Now()
 
-	if err := client.SendFile(filename, data); err != nil {
+	var governedDecision decision.Decision
+	var governedIntent decision.Intent
+	if governedOutbound != nil {
+		frame := &dataexchange.Frame{Type: dataexchange.TypeFile, Filename: filename, Payload: data}
+		intent, result, authorizeErr := governedOutbound.authorizeFrame(context.Background(), frame)
+		if authorizeErr != nil {
+			stop()
+			fatalCode("permission_denied", "governed send-file: %v", authorizeErr)
+		}
+		governedIntent = intent
+		governedDecision = result
+		if disclosure, found := governedOutbound.disclosure(intent.ID); found {
+			err = client.SendGovernedWithDisclosure(frame, intent, result, disclosure)
+		} else {
+			err = client.SendGoverned(frame, intent, result)
+		}
+	} else {
+		err = client.SendFile(filename, data)
+	}
+	if err != nil {
+		governedOutbound.complete(context.Background(), governedIntent.ID, false, "transport_send_failed")
 		stop()
 		fatalCode("connection_failed", "send failed: %v", err)
 	}
@@ -4336,6 +4382,7 @@ func cmdSendFile(args []string) {
 	case res := <-ackCh:
 		ack = res.frame
 		if res.err != nil {
+			governedOutbound.complete(context.Background(), governedIntent.ID, false, "ack_unavailable")
 			stop()
 			// Sender wrote all bytes but never got the receiver's ACK
 			// back (likely receiver crashed or restarted mid-transfer).
@@ -4344,6 +4391,7 @@ func cmdSendFile(args []string) {
 				"send wrote all bytes but no ACK from receiver: %v", res.err)
 		}
 	case <-time.After(timeout):
+		governedOutbound.complete(context.Background(), governedIntent.ID, false, "ack_timeout")
 		stop()
 		// Closing the conn lets the goroutine unwind. We deliberately
 		// don't wait for it here — we've already given the receiver its
@@ -4368,6 +4416,11 @@ func cmdSendFile(args []string) {
 		"elapsed_ms":      elapsed.Milliseconds(),
 		"throughput_mbps": mbps,
 	}
+	if governedOutbound != nil {
+		result["governed"] = true
+		result["decision_id"] = governedDecision.ID
+		result["policy_revision"] = governedDecision.PolicyRevision
+	}
 	if ack != nil {
 		ackText := string(ack.Payload)
 		result["ack"] = ackText
@@ -4375,8 +4428,14 @@ func cmdSendFile(args []string) {
 		// with "ERR " — surface them as a real failure instead of
 		// claiming success (e.g. disk-full, save permission denied).
 		if strings.HasPrefix(ackText, "ERR ") {
+			governedOutbound.completeWithResponse(context.Background(), governedIntent.ID, false, "receiver_rejected", "text/plain", ack.Payload)
 			fatalCode("internal", "receiver rejected file: %s", ackText)
 		}
+	}
+	if ack != nil {
+		governedOutbound.completeWithResponse(context.Background(), governedIntent.ID, true, "", frameContentType(ack.Type), ack.Payload)
+	} else {
+		governedOutbound.complete(context.Background(), governedIntent.ID, true, "")
 	}
 	outputOK(result)
 }
@@ -4386,7 +4445,7 @@ func cmdSendFile(args []string) {
 // dataexchange.ErrStreamUnsupported tells the caller to fall back to the
 // single-frame TypeFile path (the receiver is too old). timeout bounds the
 // wait for any single ACK and for the receiver's final verification.
-func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename string, size int64, timeout time.Duration) (map[string]interface{}, error) {
+func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename string, size int64, timeout time.Duration, governedOutbound *governedOutboundSender) (map[string]interface{}, error) {
 	client, err := dataexchange.Dial(d, target)
 	if err != nil {
 		return nil, err
@@ -4401,21 +4460,60 @@ func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename s
 
 	stop := startWaitProgress(fmt.Sprintf("streaming %s to %s", filename, target))
 	start := time.Now()
-	res, serr := client.SendFileStream(filename, f, size, timeout)
+	var governedDecision decision.Decision
+	var governedIntent decision.Intent
+	var res *dataexchange.StreamResult
+	var serr error
+	if governedOutbound != nil {
+		if governedOutbound.hook != nil && governedOutbound.contentBuilder != nil {
+			if size > maxInlineHostedFederationBytes {
+				return nil, fmt.Errorf("hosted federation currently accepts files up to %d bytes; use an unmanaged transfer or split the file", maxInlineHostedFederationBytes)
+			}
+			body, readErr := io.ReadAll(io.LimitReader(f, maxInlineHostedFederationBytes+1))
+			if readErr != nil {
+				return nil, readErr
+			}
+			if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+				return nil, seekErr
+			}
+			res, serr = client.SendGovernedFileStreamWithDisclosureAuthorizer(filename, f, size, func(initPayload []byte) (decision.Intent, decision.Decision, decision.DisclosureBinding, error) {
+				intent, result, disclosure, authorizeErr := governedOutbound.authorizeFederatedStream(context.Background(), initPayload, body)
+				if authorizeErr == nil {
+					governedIntent = intent
+					governedDecision = result
+				}
+				return intent, result, disclosure, authorizeErr
+			}, timeout)
+		} else {
+			res, serr = client.SendGovernedFileStreamWithAuthorizer(filename, f, size, func(initPayload []byte) (decision.Intent, decision.Decision, error) {
+				intent, result, authorizeErr := governedOutbound.authorizeStream(context.Background(), initPayload)
+				if authorizeErr == nil {
+					governedIntent = intent
+					governedDecision = result
+				}
+				return intent, result, authorizeErr
+			}, timeout)
+		}
+	} else {
+		res, serr = client.SendFileStream(filename, f, size, timeout)
+	}
 	stop()
 	if serr != nil {
+		governedOutbound.complete(context.Background(), governedIntent.ID, false, "stream_failed")
 		return nil, serr
 	}
 	if !res.OK {
+		governedOutbound.complete(context.Background(), governedIntent.ID, false, "receiver_rejected")
 		return nil, fmt.Errorf("receiver rejected file: %s", res.Message)
 	}
+	governedOutbound.completeWithResponse(context.Background(), governedIntent.ID, true, "", "text/plain", []byte(res.Message))
 
 	elapsed := time.Since(start)
 	mbps := 0.0
 	if elapsed > 0 {
 		mbps = (float64(res.TotalBytes) * 8.0) / (1e6 * elapsed.Seconds())
 	}
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"filename":        filename,
 		"bytes":           res.TotalBytes,
 		"bytes_sent":      res.BytesSent,
@@ -4426,13 +4524,19 @@ func streamSendFile(d *driver.Driver, target protocol.Addr, filePath, filename s
 		"throughput_mbps": mbps,
 		"transport":       "filestream",
 		"verified":        res.OK,
-	}, nil
+	}
+	if governedOutbound != nil {
+		result["governed"] = true
+		result["decision_id"] = governedDecision.ID
+		result["policy_revision"] = governedDecision.PolicyRevision
+	}
+	return result, nil
 }
 
 func cmdSendMessage(args []string) {
 	flags, pos := parseFlags(args)
 	if len(pos) < 1 {
-		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--trace] [--count <n>] [--reuse-conn] [--wait <dur>]")
+		fatalCode("invalid_argument", "usage: pilotctl send-message <address|hostname> --data <text> [--type text|json|binary] [--trace] [--count <n>] [--reuse-conn] [--wait <dur>] [--enterprise-control <path> --governed-resource <receiver-resource>]")
 	}
 
 	sendCount := flagInt(flags, "count", 1)
@@ -4501,6 +4605,13 @@ func cmdSendMessage(args []string) {
 	if innerType == 0 && msgType != "text" {
 		fatalCode("invalid_argument", "unknown type %q (use text, json, or binary)", msgType)
 	}
+	governedOutbound, governedErr := governedOutboundFromFlags(flags)
+	if governedErr != nil {
+		fatalCode("invalid_argument", "governed send-message: %v", governedErr)
+	}
+	if governedOutbound != nil && traceTime {
+		fatalCode("invalid_argument", "--trace is unavailable with --enterprise-control because trace frames are not governed")
+	}
 
 	// dialOnce opens a fresh data-exchange connection and returns it. Used
 	// both for single sends and for the no-reuse multi-send path.
@@ -4522,7 +4633,20 @@ func cmdSendMessage(args []string) {
 	sendOne := func(cl *dataexchange.Client, seq int, reused bool) map[string]interface{} {
 		var sentAtNs int64
 		var sendErr error
-		if traceTime {
+		var governedIntent decision.Intent
+		var governedDecision decision.Decision
+		if governedOutbound != nil {
+			frame := &dataexchange.Frame{Type: innerType, Payload: []byte(data)}
+			governedIntent, governedDecision, sendErr = governedOutbound.authorizeFrame(context.Background(), frame)
+			if sendErr == nil {
+				if disclosure, found := governedOutbound.disclosure(governedIntent.ID); found {
+					sendErr = cl.SendGovernedWithDisclosure(frame, governedIntent, governedDecision, disclosure)
+				} else {
+					sendErr = cl.SendGoverned(frame, governedIntent, governedDecision)
+				}
+			}
+			sentAtNs = time.Now().UnixNano()
+		} else if traceTime {
 			sentAtNs, sendErr = cl.SendTrace(innerType, []byte(data))
 		} else {
 			sendStart := time.Now()
@@ -4537,6 +4661,7 @@ func cmdSendMessage(args []string) {
 			sentAtNs = sendStart.UnixNano()
 		}
 		if sendErr != nil {
+			governedOutbound.complete(context.Background(), governedIntent.ID, false, "transport_send_failed")
 			return map[string]interface{}{"seq": seq, "error": sendErr.Error()}
 		}
 
@@ -4544,12 +4669,26 @@ func cmdSendMessage(args []string) {
 		ackRecvAtNs := time.Now().UnixNano()
 		if ackErr != nil {
 			slog.Debug("send-message ACK read failed", "err", ackErr)
+			governedOutbound.complete(context.Background(), governedIntent.ID, false, "ack_unavailable")
+		} else if ack != nil && strings.HasPrefix(string(ack.Payload), "ERR ") {
+			governedOutbound.completeWithResponse(context.Background(), governedIntent.ID, false, "receiver_rejected", frameContentType(ack.Type), ack.Payload)
+		} else {
+			if ack != nil {
+				governedOutbound.completeWithResponse(context.Background(), governedIntent.ID, true, "", frameContentType(ack.Type), ack.Payload)
+			} else {
+				governedOutbound.complete(context.Background(), governedIntent.ID, true, "")
+			}
 		}
 
 		r := map[string]interface{}{
 			"seq":    seq,
 			"bytes":  len(data),
 			"reused": reused,
+		}
+		if governedOutbound != nil && sendErr == nil {
+			r["governed"] = true
+			r["decision_id"] = governedDecision.ID
+			r["policy_revision"] = governedDecision.PolicyRevision
 		}
 		if ack != nil {
 			r["ack"] = string(ack.Payload)
@@ -4593,6 +4732,11 @@ func cmdSendMessage(args []string) {
 		tracef("dataexchange.Dial")
 		defer cl.Close()
 		r := sendOne(cl, 0, false)
+		if governedOutbound != nil {
+			if message, failed := r["error"].(string); failed {
+				fatalCode("permission_denied", "governed send-message: %s", message)
+			}
+		}
 		result := map[string]interface{}{
 			"target": target.String(),
 			"to":     target.String(),
@@ -4641,7 +4785,13 @@ func cmdSendMessage(args []string) {
 		defer cl.Close()
 		var results []map[string]interface{}
 		for i := 0; i < sendCount; i++ {
-			results = append(results, sendOne(cl, i, i > 0))
+			result := sendOne(cl, i, i > 0)
+			if governedOutbound != nil {
+				if message, failed := result["error"].(string); failed {
+					fatalCode("permission_denied", "governed send-message: %s", message)
+				}
+			}
+			results = append(results, result)
 			if i < sendCount-1 {
 				time.Sleep(50 * time.Millisecond)
 			}
@@ -4659,7 +4809,14 @@ func cmdSendMessage(args []string) {
 		var results []map[string]interface{}
 		for i := 0; i < sendCount; i++ {
 			cl := dialOnce()
-			results = append(results, sendOne(cl, i, false))
+			result := sendOne(cl, i, false)
+			if governedOutbound != nil {
+				if message, failed := result["error"].(string); failed {
+					_ = cl.Close()
+					fatalCode("permission_denied", "governed send-message: %s", message)
+				}
+			}
+			results = append(results, result)
 			cl.Close()
 			if i < sendCount-1 {
 				time.Sleep(50 * time.Millisecond)

@@ -4,7 +4,6 @@ package daemon
 
 import (
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,8 +25,9 @@ func TestWriteLoopExitsOnWriteDeadline(t *testing.T) {
 	}
 	t.Parallel()
 
-	tmp := t.TempDir()
-	sockPath := filepath.Join(tmp, "deadline.sock")
+	// Keep the path below Darwin's short sockaddr_un.sun_path limit.
+	// t.TempDir includes the full test name and can exceed that limit.
+	sockPath := shortSockPath(t)
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {

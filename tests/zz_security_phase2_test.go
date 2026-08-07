@@ -178,17 +178,32 @@ func TestBeaconNodeCapRejectsNewAtMax(t *testing.T) {
 	s, addr := startTestBeacon(t)
 	defer s.Close()
 
-	// Discover 5 nodes
-	for i := uint32(1); i <= 5; i++ {
-		msg := make([]byte, 5)
-		msg[0] = protocol.BeaconMsgDiscover
-		binary.BigEndian.PutUint32(msg[1:5], i)
-		sendUDP(t, addr, msg)
+	// UDP delivery and goroutine scheduling are intentionally best-effort.
+	// Retransmit the idempotent discovery messages until the beacon exposes the
+	// expected state instead of assuming five packets are processed in 50 ms.
+	conn, err := net.DialUDP("udp", nil, addr)
+	if err != nil {
+		t.Fatalf("dial beacon: %v", err)
 	}
+	defer conn.Close()
 
-	time.Sleep(50 * time.Millisecond)
-	if s.LocalNodeCount() != 5 {
-		t.Fatalf("expected 5 local nodes, got %d", s.LocalNodeCount())
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		for i := uint32(1); i <= 5; i++ {
+			msg := make([]byte, 5)
+			msg[0] = protocol.BeaconMsgDiscover
+			binary.BigEndian.PutUint32(msg[1:5], i)
+			if _, err := conn.Write(msg); err != nil {
+				t.Fatalf("send discovery for node %d: %v", i, err)
+			}
+		}
+
+		if count := s.LocalNodeCount(); count == 5 {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("expected 5 local nodes before deadline, got %d", count)
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
 }
 

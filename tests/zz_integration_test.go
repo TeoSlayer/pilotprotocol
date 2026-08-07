@@ -797,8 +797,8 @@ func TestIntegration_DirectorySyncE2E(t *testing.T) {
 	defer cleanup()
 
 	ownerID, _ := registerTestNode(t, rc)
-	node2ID, _ := registerTestNode(t, rc)
-	node3ID, _ := registerTestNode(t, rc)
+	node2ID, node2Identity := registerTestNode(t, rc)
+	node3ID, node3Identity := registerTestNode(t, rc)
 
 	netResp, err := rc.CreateNetwork(ownerID, "dirsync-e2e", "open", "", TestAdminToken, true)
 	if err != nil {
@@ -806,10 +806,12 @@ func TestIntegration_DirectorySyncE2E(t *testing.T) {
 	}
 	netID := uint16(netResp["network_id"].(float64))
 
+	setClientSigner(rc, node2Identity)
 	_, err = rc.JoinNetwork(node2ID, netID, "", 0, TestAdminToken)
 	if err != nil {
 		t.Fatalf("join node2: %v", err)
 	}
+	setClientSigner(rc, node3Identity)
 	_, err = rc.JoinNetwork(node3ID, netID, "", 0, TestAdminToken)
 	if err != nil {
 		t.Fatalf("join node3: %v", err)
@@ -1007,16 +1009,24 @@ func TestIntegration_WebhookDLQWithRealServer(t *testing.T) {
 		t.Fatalf("create network: %v", err)
 	}
 
-	// Wait for retries to exhaust (3 retries * fast backoff)
-	time.Sleep(500 * time.Millisecond)
-
-	whResp, err := rc.GetWebhook(TestAdminToken)
-	if err != nil {
-		t.Fatalf("get webhook: %v", err)
+	// Wait for retries to exhaust. The full integration suite runs many real
+	// network tests in parallel, so a fixed sleep is not a reliable completion
+	// signal on a loaded CI worker.
+	deadline := time.Now().Add(10 * time.Second)
+	var whResp map[string]interface{}
+	var failed, delivered float64
+	for {
+		whResp, err = rc.GetWebhook(TestAdminToken)
+		if err != nil {
+			t.Fatalf("get webhook: %v", err)
+		}
+		failed, _ = whResp["failed"].(float64)
+		delivered, _ = whResp["delivered"].(float64)
+		if failed > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
 	}
-
-	failed, _ := whResp["failed"].(float64)
-	delivered, _ := whResp["delivered"].(float64)
 	t.Logf("webhook stats: delivered=%v failed=%v", delivered, failed)
 
 	if failed == 0 {
@@ -1097,9 +1107,9 @@ func TestIntegration_MetricsReflectOperations(t *testing.T) {
 	}
 	defer rc.Close()
 
-	id1, _ := registerTestNode(t, rc)
-	id2, _ := registerTestNode(t, rc)
-	id3, _ := registerTestNode(t, rc)
+	id1, identity1 := registerTestNode(t, rc)
+	id2, identity2 := registerTestNode(t, rc)
+	id3, identity3 := registerTestNode(t, rc)
 
 	netResp, err := rc.CreateNetwork(id1, "metrics-ops-net", "open", "", TestAdminToken, true)
 	if err != nil {
@@ -1107,9 +1117,18 @@ func TestIntegration_MetricsReflectOperations(t *testing.T) {
 	}
 	netID := uint16(netResp["network_id"].(float64))
 
-	_, _ = rc.JoinNetwork(id2, netID, "", 0, TestAdminToken)
-	_, _ = rc.JoinNetwork(id3, netID, "", 0, TestAdminToken)
-	_, _ = rc.PromoteMember(netID, id1, id2, TestAdminToken)
+	setClientSigner(rc, identity2)
+	if _, err := rc.JoinNetwork(id2, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join node 2: %v", err)
+	}
+	setClientSigner(rc, identity3)
+	if _, err := rc.JoinNetwork(id3, netID, "", 0, TestAdminToken); err != nil {
+		t.Fatalf("join node 3: %v", err)
+	}
+	setClientSigner(rc, identity1)
+	if _, err := rc.PromoteMember(netID, id1, id2, TestAdminToken); err != nil {
+		t.Fatalf("promote node 2: %v", err)
+	}
 
 	body := fetchMetrics(t, dashAddr)
 

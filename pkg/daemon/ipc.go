@@ -109,6 +109,10 @@ const (
 	CmdSignEnvelopeOK   byte = 0x34
 	CmdVerifyEnvelope   byte = 0x35
 	CmdVerifyEnvelopeOK byte = 0x36
+	// CmdUnbind releases a listener owned by this IPC client while leaving
+	// accepted connections and the rest of the driver session intact.
+	CmdUnbind   byte = 0x37
+	CmdUnbindOK byte = 0x38
 )
 
 // Network sub-commands (second byte of CmdNetwork payload)
@@ -476,6 +480,18 @@ func (c *ipcConn) trackPort(port uint16) {
 	c.ports = append(c.ports, port)
 }
 
+func (c *ipcConn) removePort(port uint16) bool {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	for index, tracked := range c.ports {
+		if tracked == port {
+			c.ports = append(c.ports[:index], c.ports[index+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 func (c *ipcConn) trackConn(connID uint32) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -802,6 +818,8 @@ func (s *IPCServer) dispatch(conn *ipcConn, cmd byte, reqID uint64, payload []by
 	switch cmd {
 	case CmdBind:
 		s.handleBind(conn, reqID, payload)
+	case CmdUnbind:
+		s.handleUnbind(conn, reqID, payload)
 	case CmdDial:
 		s.handleDial(conn, reqID, payload)
 	case CmdSend:
@@ -895,6 +913,24 @@ func (s *IPCServer) handleBind(conn *ipcConn, reqID uint64, payload []byte) {
 			s.startRecvPusher(conn, c)
 		}
 	}()
+}
+
+func (s *IPCServer) handleUnbind(conn *ipcConn, reqID uint64, payload []byte) {
+	if len(payload) != 2 {
+		s.sendError(conn, reqID, "unbind: port is required")
+		return
+	}
+	port := binary.BigEndian.Uint16(payload)
+	if !conn.removePort(port) {
+		s.sendError(conn, reqID, "unbind: port is not owned by this client")
+		return
+	}
+	s.daemon.ports.Unbind(port)
+	response := make([]byte, 2)
+	binary.BigEndian.PutUint16(response, port)
+	if err := conn.writeReply(CmdUnbindOK, reqID, response); err != nil {
+		slog.Debug("IPC unbind reply failed", "port", port, "err", err)
+	}
 }
 
 func (s *IPCServer) handleDial(conn *ipcConn, reqID uint64, payload []byte) {

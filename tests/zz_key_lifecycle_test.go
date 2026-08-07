@@ -345,6 +345,7 @@ func TestKeyAgeDaysInResolve(t *testing.T) {
 	nodeID1 := uint32(resp1["node_id"].(float64))
 
 	id2, _ := crypto.GenerateIdentity()
+	setClientSigner(rc, id2)
 	resp2, err := rc.RegisterWithKey("127.0.0.1:5002", crypto.EncodePublicKey(id2.PublicKey), "", nil)
 	if err != nil {
 		t.Fatalf("register node 2: %v", err)
