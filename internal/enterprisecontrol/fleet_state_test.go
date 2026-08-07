@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pilot-protocol/common/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 )
 
 func TestFleetStateScannerRedactsAndProtectsSensitiveMaterial(t *testing.T) {

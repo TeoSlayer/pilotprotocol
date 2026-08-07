@@ -20,7 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/pilot-protocol/common/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 )
 
 const fleetStatePerFilePreviewBytes = 256 << 10

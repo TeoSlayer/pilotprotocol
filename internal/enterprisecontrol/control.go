@@ -21,16 +21,16 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/pilot-protocol/common/actioncontinuation"
-	"github.com/pilot-protocol/common/actionregistry"
-	"github.com/pilot-protocol/common/authority"
-	"github.com/pilot-protocol/common/authorityhttp"
 	"github.com/pilot-protocol/common/coreapi"
 	"github.com/pilot-protocol/common/decision"
-	"github.com/pilot-protocol/common/decisionhttp"
-	"github.com/pilot-protocol/common/decisionpolicy"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actioncontinuation"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actionregistry"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authorityhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionpolicy"
 )
 
 // Config is the daemon's local, signed-state bootstrap attachment. Root keys

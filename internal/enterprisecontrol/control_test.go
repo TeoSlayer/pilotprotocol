@@ -8,25 +8,27 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/pilot-protocol/common/actionhook"
-	"github.com/pilot-protocol/common/actionregistry"
-	"github.com/pilot-protocol/common/authority"
-	"github.com/pilot-protocol/common/authorityhttp"
 	"github.com/pilot-protocol/common/coreapi"
 	"github.com/pilot-protocol/common/decision"
-	"github.com/pilot-protocol/common/decisionhttp"
-	"github.com/pilot-protocol/common/decisionpolicy"
 	"github.com/pilot-protocol/dataexchange"
 	"github.com/pilot-protocol/eventstream"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actionregistry"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authorityhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionpolicy"
 )
 
 type controlFixture struct {
@@ -37,10 +39,164 @@ type controlFixture struct {
 	now             time.Time
 }
 
-type controlAuthorizerFunc func(context.Context, decision.Intent) (decision.Decision, error)
+type testApprovalAuthority struct {
+	mu              sync.Mutex
+	decisionPrivate ed25519.PrivateKey
+	decisionPublic  ed25519.PublicKey
+	approvalPublic  ed25519.PublicKey
+	record          decisionhttp.WorkflowRecord
+}
 
-func (authorize controlAuthorizerFunc) Authorize(ctx context.Context, intent decision.Intent) (decision.Decision, error) {
-	return authorize(ctx, intent)
+func (authority *testApprovalAuthority) authorize(writer http.ResponseWriter, request *http.Request) {
+	var intent decision.Intent
+	if request.Method != http.MethodPost || json.NewDecoder(request.Body).Decode(&intent) != nil || intent.Validate() != nil {
+		http.Error(writer, "invalid intent", http.StatusBadRequest)
+		return
+	}
+	intentHash, err := intent.Hash()
+	if err != nil {
+		http.Error(writer, "invalid intent", http.StatusBadRequest)
+		return
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Minute).Unix()
+	if intent.ExpiresAt < expiresAt {
+		expiresAt = intent.ExpiresAt
+	}
+	result := decision.Decision{
+		Version: decision.SchemaVersion, ID: "approval-" + intentHash[:32], IntentHash: intentHash,
+		TenantID: intent.TenantID, AgentID: intent.AgentID, Outcome: decision.ApprovalRequired,
+		Reasons: []string{"approval-plan:trust-review:1"}, PolicyRevision: 1, RevocationEpoch: 1,
+		ProviderID: "test-authority", IssuedAt: now.Unix(), ExpiresAt: expiresAt, KeyID: "authority-key",
+	}
+	if err := result.Sign(authority.decisionPrivate); err != nil {
+		http.Error(writer, "sign decision", http.StatusInternalServerError)
+		return
+	}
+	writeApprovalTestJSON(writer, result)
+}
+
+func (authority *testApprovalAuthority) begin(writer http.ResponseWriter, request *http.Request) {
+	var envelope decisionhttp.WorkflowBeginEnvelope
+	if request.Method != http.MethodPost || json.NewDecoder(request.Body).Decode(&envelope) != nil {
+		http.Error(writer, "invalid workflow", http.StatusBadRequest)
+		return
+	}
+	createdAt := time.Unix(envelope.Initial.IssuedAt, 0)
+	transaction, err := decision.NewApprovalTransaction(
+		envelope.Intent, envelope.Initial, decision.Allow, nil, []string{"approval-key"}, 1,
+		createdAt, createdAt.Add(time.Hour), "test-authority", "authority-key",
+	)
+	if err == nil {
+		err = transaction.Sign(authority.decisionPrivate)
+	}
+	if err != nil {
+		http.Error(writer, "invalid workflow", http.StatusUnprocessableEntity)
+		return
+	}
+	authority.mu.Lock()
+	authority.record = decisionhttp.WorkflowRecord{Transaction: transaction}
+	record := authority.record
+	authority.mu.Unlock()
+	writeApprovalTestJSON(writer, record)
+}
+
+func (authority *testApprovalAuthority) status(transactionID string) (decisionhttp.WorkflowRecord, error) {
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if authority.record.Transaction.ID == "" || authority.record.Transaction.ID != transactionID {
+		return decisionhttp.WorkflowRecord{}, fmt.Errorf("workflow %s not found", transactionID)
+	}
+	return authority.record, nil
+}
+
+func (authority *testApprovalAuthority) statusHTTP(writer http.ResponseWriter, request *http.Request) {
+	record, err := authority.status(request.URL.Query().Get("transaction_id"))
+	if err != nil {
+		http.Error(writer, "workflow not found", http.StatusNotFound)
+		return
+	}
+	writeApprovalTestJSON(writer, record)
+}
+
+func (authority *testApprovalAuthority) vote(transactionID string, vote decision.ApprovalVote) (decisionhttp.WorkflowRecord, error) {
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if authority.record.Transaction.ID == "" || authority.record.Transaction.ID != transactionID {
+		return decisionhttp.WorkflowRecord{}, fmt.Errorf("workflow %s not found", transactionID)
+	}
+	certificate, err := decision.NewApprovalCertificate(
+		authority.record.Transaction, []decision.ApprovalVote{vote},
+		map[string]ed25519.PublicKey{"approval-key": authority.approvalPublic}, authority.decisionPublic,
+		time.Now().UTC(), "test-authority", "authority-key",
+	)
+	if err == nil {
+		err = certificate.Sign(authority.decisionPrivate)
+	}
+	if err != nil {
+		return decisionhttp.WorkflowRecord{}, err
+	}
+	authority.record.Votes = []decision.ApprovalVote{vote}
+	authority.record.Certificate = &certificate
+	return authority.record, nil
+}
+
+func (authority *testApprovalAuthority) execute(writer http.ResponseWriter, request *http.Request) {
+	var envelope decisionhttp.WorkflowExecuteEnvelope
+	if request.Method != http.MethodPost || json.NewDecoder(request.Body).Decode(&envelope) != nil {
+		http.Error(writer, "invalid execution", http.StatusBadRequest)
+		return
+	}
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if authority.record.Transaction.ID != envelope.TransactionID || authority.record.Certificate == nil {
+		http.Error(writer, "workflow not approved", http.StatusConflict)
+		return
+	}
+	if err := decision.VerifyApprovedExecution(
+		envelope.Intent, authority.record.Transaction, *authority.record.Certificate, authority.record.Votes,
+		map[string]ed25519.PublicKey{"approval-key": authority.approvalPublic}, authority.decisionPublic, time.Now().UTC(),
+	); err != nil {
+		http.Error(writer, "invalid approved execution", http.StatusConflict)
+		return
+	}
+	intentHash, err := envelope.Intent.Hash()
+	if err != nil {
+		http.Error(writer, "invalid execution intent", http.StatusBadRequest)
+		return
+	}
+	certificateHash, err := authority.record.Certificate.Hash()
+	if err != nil {
+		http.Error(writer, "invalid approval certificate", http.StatusInternalServerError)
+		return
+	}
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Minute).Unix()
+	if envelope.Intent.ExpiresAt < expiresAt {
+		expiresAt = envelope.Intent.ExpiresAt
+	}
+	if authority.record.Certificate.ExpiresAt < expiresAt {
+		expiresAt = authority.record.Certificate.ExpiresAt
+	}
+	result := decision.Decision{
+		Version: decision.SchemaVersion, ID: "approved-" + intentHash[:32], IntentHash: intentHash,
+		TenantID: envelope.Intent.TenantID, AgentID: envelope.Intent.AgentID, Outcome: authority.record.Certificate.Outcome,
+		Reasons: []string{"workflow:" + certificateHash}, Constraints: append([]decision.Constraint(nil), authority.record.Certificate.Constraints...),
+		PolicyRevision: authority.record.Certificate.PolicyRevision, RevocationEpoch: authority.record.Certificate.RevocationEpoch,
+		ProviderID: "test-authority", IssuedAt: now.Unix(), ExpiresAt: expiresAt, KeyID: "authority-key",
+	}
+	if err := result.Sign(authority.decisionPrivate); err != nil {
+		http.Error(writer, "sign approved decision", http.StatusInternalServerError)
+		return
+	}
+	authority.record.ConsumedIntentID = intentHash
+	authority.record.ConsumedDecision = &result
+	writeApprovalTestJSON(writer, result)
+}
+
+func writeApprovalTestJSON(writer http.ResponseWriter, value any) {
+	writer.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(writer).Encode(value)
 }
 
 func newControlFixture(t *testing.T) controlFixture {
@@ -210,53 +366,16 @@ func TestManagedActionApprovalSuspendsAndResumesExactlyOnce(t *testing.T) {
 	}
 	writeControlJSON(t, filepath.Join(directory, "policy.json"), policy)
 
-	rootPublicRaw, err := base64.StdEncoding.DecodeString(readControlConfig(t, fixture.path).RootPublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keys, err := authority.NewStore([]authority.PinnedRoot{{TenantID: "tenant-a", RootKeyID: "root-key", PublicKey: ed25519.PublicKey(rootPublicRaw)}}, time.Now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := keys.Install(trust); err != nil {
-		t.Fatal(err)
-	}
-	decisionStore, err := decisionhttp.NewFileDecisionStore(filepath.Join(directory, "authority-decisions"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	authorizer, err := decisionhttp.NewHandler(decisionhttp.HandlerConfig{
-		Evaluator: controlAuthorizerFunc(func(context.Context, decision.Intent) (decision.Decision, error) {
-			return decision.Decision{Outcome: decision.ApprovalRequired, Reasons: []string{"approval-plan:trust-review:1"}, PolicyRevision: 1, RevocationEpoch: 1}, nil
-		}),
-		IntentKeys: keys, ProviderID: "test-authority", KeyID: "authority-key", PrivateKey: fixture.decisionPrivate, Store: decisionStore,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflowStore, err := decisionhttp.NewFileWorkflowStore(filepath.Join(directory, "authority-workflows"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflows, err := decisionhttp.NewWorkflowService(decisionhttp.WorkflowServiceConfig{
-		Authority: authorizer, Keys: keys, Store: workflowStore,
-		Planner: decisionhttp.StaticWorkflowPlanner{ApprovalPlan: decisionhttp.ApprovalPlan{
-			Outcome: decision.Allow, ApproverKeyIDs: []string{"approval-key"}, Required: 1, Validity: time.Hour,
-		}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	workflowHandler, err := decisionhttp.NewWorkflowHandler(workflows)
-	if err != nil {
-		t.Fatal(err)
+	approvalAuthority := &testApprovalAuthority{
+		decisionPrivate: fixture.decisionPrivate,
+		decisionPublic:  fixture.decisionPrivate.Public().(ed25519.PublicKey),
+		approvalPublic:  approvalPublic,
 	}
 	mux := http.NewServeMux()
-	mux.Handle("/v1/authorize", authorizer)
-	mux.HandleFunc("/v1/workflow/begin", workflowHandler.Begin)
-	mux.HandleFunc("/v1/workflow/vote", workflowHandler.Vote)
-	mux.HandleFunc("/v1/workflow/execute", workflowHandler.Execute)
-	mux.HandleFunc("/v1/workflow-status", workflowHandler.Status)
+	mux.HandleFunc("/v1/authorize", approvalAuthority.authorize)
+	mux.HandleFunc("/v1/workflow/begin", approvalAuthority.begin)
+	mux.HandleFunc("/v1/workflow/execute", approvalAuthority.execute)
+	mux.HandleFunc("/v1/workflow-status", approvalAuthority.statusHTTP)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -290,7 +409,7 @@ func TestManagedActionApprovalSuspendsAndResumesExactlyOnce(t *testing.T) {
 	if err != nil || initial.Outcome != decision.ApprovalRequired || initial.Reference.ApprovalTransaction == "" {
 		t.Fatalf("initial preflight=%+v err=%v", initial, err)
 	}
-	workflow, err := workflows.Status(context.Background(), initial.Reference.ApprovalTransaction)
+	workflow, err := approvalAuthority.status(initial.Reference.ApprovalTransaction)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +420,7 @@ func TestManagedActionApprovalSuspendsAndResumesExactlyOnce(t *testing.T) {
 	if err := vote.Sign(approvalPrivate); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workflows.Vote(context.Background(), workflow.Transaction.ID, vote); err != nil {
+	if _, err := approvalAuthority.vote(workflow.Transaction.ID, vote); err != nil {
 		t.Fatal(err)
 	}
 

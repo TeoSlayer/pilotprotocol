@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pilot-protocol/common/authority"
 	"github.com/pilot-protocol/common/decision"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 )
 
 // replaceableMandateStore keeps the verifier pointed at one stable store

@@ -18,11 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/pilot-protocol/common/authority"
 	"github.com/pilot-protocol/common/config"
 	"github.com/pilot-protocol/common/driver"
 	"github.com/pilot-protocol/common/logging"
 	"github.com/pilot-protocol/pilotprotocol/internal/enterprisecontrol"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 	"github.com/pilot-protocol/pilotprotocol/internal/motd"
 	"github.com/pilot-protocol/pilotprotocol/pkg/daemon"
 

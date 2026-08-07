@@ -11,12 +11,12 @@ import (
 	"slices"
 	"time"
 
-	"github.com/pilot-protocol/common/actioncontinuation"
 	"github.com/pilot-protocol/common/actionhook"
-	"github.com/pilot-protocol/common/actionregistry"
-	"github.com/pilot-protocol/common/authority"
 	"github.com/pilot-protocol/common/decision"
-	"github.com/pilot-protocol/common/decisionhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actioncontinuation"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actionregistry"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionhttp"
 )
 
 type actionHookState struct {

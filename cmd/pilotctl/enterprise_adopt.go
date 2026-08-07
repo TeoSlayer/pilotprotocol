@@ -20,14 +20,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pilot-protocol/common/actionregistry"
-	"github.com/pilot-protocol/common/authority"
-	"github.com/pilot-protocol/common/authorityhttp"
 	"github.com/pilot-protocol/common/decision"
 	"github.com/pilot-protocol/pilotprotocol/internal/enterprisecontrol"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/actionregistry"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authorityhttp"
 )
 
 const defaultEnrollmentTokenEnvironment = "PILOT_ENROLLMENT_TOKEN"
+const managedCoreConnectorVersion = "pilot-core-managed-0.1.4"
 
 type enterpriseAdoptOptions struct {
 	Endpoint         string
@@ -291,7 +292,7 @@ func installEnrolledAttachment(outputDirectory string, claim authorityhttp.NodeE
 	if claim.Options.FleetControl {
 		config.Fleet = &enterprisecontrol.FleetConfig{
 			ReportIntervalSeconds: 5, AgentVersion: "pilot-onboarding/" + claim.HarnessID + "/" + claim.RunID,
-			HarnessID: claim.HarnessID, HarnessVersion: "managed", ConnectorVersion: "pilot-core-managed-0.1.3",
+			HarnessID: claim.HarnessID, HarnessVersion: "managed", ConnectorVersion: managedCoreConnectorVersion,
 			StateSyncEnabled: claim.Options.StateSync, StateSyncIntervalSeconds: 2,
 		}
 		if claim.Options.StateSync {

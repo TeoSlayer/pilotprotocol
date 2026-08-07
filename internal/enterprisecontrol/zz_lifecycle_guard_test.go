@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pilot-protocol/common/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 )
 
 // TestLifecycleGuardRejectsReplay pins SECURITY_REVIEW_v1.14 finding M2: an

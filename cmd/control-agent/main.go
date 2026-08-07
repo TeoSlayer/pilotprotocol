@@ -21,8 +21,8 @@ import (
 	"time"
 
 	"github.com/pilot-protocol/common/actionhook"
-	"github.com/pilot-protocol/common/authority"
 	"github.com/pilot-protocol/pilotprotocol/internal/enterprisecontrol"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
 )
 
 type evidenceEvent struct {

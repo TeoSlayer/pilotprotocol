@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pilot-protocol/common/authority"
-	"github.com/pilot-protocol/common/authorityhttp"
 	"github.com/pilot-protocol/common/decision"
-	"github.com/pilot-protocol/common/decisionpolicy"
 	"github.com/pilot-protocol/pilotprotocol/internal/enterprisecontrol"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authorityhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionpolicy"
 )
 
 func TestAdoptEnterpriseNodeClaimsAndInstallsVerifiedAttachment(t *testing.T) {
@@ -112,7 +112,7 @@ func TestAdoptEnterpriseNodeClaimsAndInstallsVerifiedAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(controlBody), "pilot-mcp") || !strings.Contains(string(controlBody), `"connector_version": "pilot-core-managed-0.1.3"`) {
+	if strings.Contains(string(controlBody), "pilot-mcp") || !strings.Contains(string(controlBody), `"connector_version": "`+managedCoreConnectorVersion+`"`) {
 		t.Fatalf("core adoption has the wrong connector ownership: %s", controlBody)
 	}
 	if err := filepath.Walk(outputDirectory, func(path string, info os.FileInfo, walkErr error) error {

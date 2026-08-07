@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pilot-protocol/common/authority"
-	"github.com/pilot-protocol/common/authorityhttp"
 	"github.com/pilot-protocol/common/decision"
-	"github.com/pilot-protocol/common/decisionhttp"
-	"github.com/pilot-protocol/common/decisionpolicy"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authority"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/authorityhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionhttp"
+	"github.com/pilot-protocol/pilotprotocol/internal/managedsdk/decisionpolicy"
 )
 
 const enterpriseHelpText = `Usage: pilotctl enterprise <adopt|status|dashboard-url|trust|policy|mandate|receipt|workflow|hook> [flags]
