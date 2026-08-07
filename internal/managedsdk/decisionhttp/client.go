@@ -30,10 +30,13 @@ const (
 )
 
 type Client struct {
-	endpoint         *url.URL
-	httpClient       *http.Client
-	maxResponseBytes int64
-	bearerToken      string
+	endpoint                   *url.URL
+	httpClient                 *http.Client
+	maxResponseBytes           int64
+	bearerToken                string
+	workflowTenantID           string
+	workflowAgentID            string
+	workflowAgentRequestSigner func(*http.Request, string, string) error
 }
 
 // AuthorizationRequest is the additive authorization wire envelope for a

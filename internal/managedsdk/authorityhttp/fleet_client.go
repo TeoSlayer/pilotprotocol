@@ -28,6 +28,9 @@ func (client *Client) FleetCommands(ctx context.Context, tenantID, agentID strin
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return nil, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("authorityhttp: fleet commands: %w", err)
@@ -94,6 +97,9 @@ func (client *Client) FleetStateSnapshot(ctx context.Context, tenantID, agentID 
 		return authority.FleetStateSnapshot{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return authority.FleetStateSnapshot{}, false, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return authority.FleetStateSnapshot{}, false, fmt.Errorf("authorityhttp: fleet state snapshot: %w", err)
@@ -124,6 +130,9 @@ func (client *Client) FleetStateMutations(ctx context.Context, tenantID, agentID
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return nil, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("authorityhttp: fleet state mutations: %w", err)
@@ -165,6 +174,9 @@ func (client *Client) FleetControl(ctx context.Context, tenantID, agentID string
 		return authority.FleetNodeControl{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return authority.FleetNodeControl{}, false, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return authority.FleetNodeControl{}, false, fmt.Errorf("authorityhttp: fleet control: %w", err)
