@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', 'managed-runtime-v*']
 
 permissions:
   contents: write
@@ -82,13 +82,13 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: '0'
         run: |
-          VERSION=${GITHUB_REF_NAME}
+          VERSION="${GITHUB_REF_NAME}"
           LDFLAGS="-s -w -X main.version=${VERSION}"
           BINS="daemon pilotctl updater"
           mkdir -p dist
           for bin in $BINS; do
             echo "Building $bin for ${{ matrix.goos }}/${{ matrix.goarch }}..."
-            go build -ldflags "$LDFLAGS" -o dist/$bin ./cmd/$bin
+            go build -ldflags "$LDFLAGS" -o "dist/$bin" "./cmd/$bin"
           done
 
       # Ad-hoc codesign + drop quarantine on darwin builds so downloaded
@@ -114,11 +114,15 @@ jobs:
         run: |
           echo "=== Binary smoke tests ==="
           for bin in dist/*; do
-            name=$(basename $bin)
+            name=$(basename "$bin")
             # Verify it's a valid executable
-            file $bin
+            file "$bin"
             # Version flag check (all binaries should accept -h without crashing)
-            timeout 5 $bin -h 2>&1 || true
+            if command -v timeout >/dev/null 2>&1; then
+              timeout 5 "$bin" -h 2>&1 || true
+            else
+              "$bin" -h 2>&1 || true
+            fi
             echo "  ✓ $name"
           done
 
@@ -135,8 +139,8 @@ jobs:
       - name: Package archive
         run: |
           ARCHIVE="pilot-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
-          tar -czf $ARCHIVE -C dist .
-          echo "ARCHIVE=$ARCHIVE" >> $GITHUB_ENV
+          tar -czf "$ARCHIVE" -C dist .
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -165,7 +169,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd release
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum -- *.tar.gz > checksums.txt
           cat checksums.txt
 
       # PILOT-120: SLSA build provenance attestation via Sigstore.
@@ -189,6 +193,10 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
+          # Managed runtimes are authority-pinned artifacts, not the generic
+          # Pilot update channel. Publishing one must not replace vX.Y.Z as
+          # GitHub's /releases/latest target for ordinary installers.
+          make_latest: ${{ startsWith(github.ref_name, 'managed-runtime-') && 'false' || 'true' }}
 
   # ---------------------------------------------------------------------------
   # Downstream fan-out is NO LONGER driven from here.

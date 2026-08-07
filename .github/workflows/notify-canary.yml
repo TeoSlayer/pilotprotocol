@@ -61,8 +61,8 @@ jobs:
           set -euo pipefail
           echo "Dispatching: component=$COMPONENT  ref=$REF"
           gh api -X POST /repos/pilot-protocol/pilot-canary/dispatches \
-            -f event_type=component-changed \
-            -f client_payload[component]="$COMPONENT" \
-            -f client_payload[ref]="$REF" \
-            -f client_payload[source_repo]="${{ github.repository }}" \
-            -f client_payload[source_sha]="${{ github.sha }}"
+            -f "event_type=component-changed" \
+            -f "client_payload[component]=$COMPONENT" \
+            -f "client_payload[ref]=$REF" \
+            -f "client_payload[source_repo]=${{ github.repository }}" \
+            -f "client_payload[source_sha]=${{ github.sha }}"
