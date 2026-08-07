@@ -203,6 +203,7 @@ func (control FleetNodeControl) Canonical() ([]byte, error) {
 	writer.string(control.AgentID)
 	writer.u64(control.Revision)
 	writer.string(control.Group)
+	// #nosec G115 -- Validate limits tags below uint16 capacity.
 	writer.u16(uint16(len(tags)))
 	for _, tag := range tags {
 		writer.string(tag)

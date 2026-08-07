@@ -326,6 +326,7 @@ func (mutation FleetStateMutation) Canonical() ([]byte, error) {
 	w.string(mutation.TenantID)
 	w.string(mutation.AgentID)
 	w.u64(mutation.ExpectedRevision)
+	// #nosec G115 -- Validate limits operations below uint16 capacity.
 	w.u16(uint16(len(mutation.Operations)))
 	for _, operation := range mutation.Operations {
 		w.string(string(operation.Kind))

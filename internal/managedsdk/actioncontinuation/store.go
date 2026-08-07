@@ -97,6 +97,7 @@ func Open(directory string) (*Store, error) {
 	if err := os.MkdirAll(absolute, 0o700); err != nil {
 		return nil, err
 	}
+	// #nosec G302 -- absolute is a directory; owner-only 0700 is the intended secure mode.
 	if err := os.Chmod(absolute, 0o700); err != nil {
 		return nil, err
 	}
@@ -211,6 +212,7 @@ func (store *Store) PutPending(ctx context.Context, candidate Record) (Record, e
 	if err != nil {
 		return Record{}, err
 	}
+	// #nosec G304 -- path is beneath the owner-only store and its filename is a validated 64-hex record ID.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if os.IsExist(err) {
 		existing, readErr := store.readLocked(candidate.ID)
@@ -410,6 +412,7 @@ func (store *Store) readLocked(id string) (Record, error) {
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > MaxRecordBytes || info.Mode().Perm()&0o077 != 0 {
 		return Record{}, fmt.Errorf("actioncontinuation: unsafe continuation record")
 	}
+	// #nosec G304 -- path is beneath the owner-only store; ID, type, size, symlink status and permissions are checked above.
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return Record{}, err

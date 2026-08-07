@@ -385,6 +385,7 @@ func readExternalHookAttempt(controlPath, attemptID string) (persistedExternalHo
 	if !info.Mode().IsRegular() || info.Mode()&0o077 != 0 {
 		return persistedExternalHookAttempt{}, fmt.Errorf("hook attempt must be an owner-only regular file")
 	}
+	// #nosec G304 -- path is derived from a validated attempt ID beneath the private managed-hook directory and checked above.
 	file, err := os.Open(path)
 	if err != nil {
 		return persistedExternalHookAttempt{}, err

@@ -137,6 +137,7 @@ func (publication PolicyPublication) Canonical() ([]byte, error) {
 	writer.u64(publication.PolicyRevision)
 	writer.u64(publication.RevocationEpoch)
 	writer.string(publication.PolicyHash)
+	// #nosec G115 -- Validate limits expected agents below uint16 capacity.
 	writer.u16(uint16(len(agents)))
 	for _, agentID := range agents {
 		writer.string(agentID)

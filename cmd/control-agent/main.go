@@ -76,6 +76,7 @@ func main() {
 	ticker := time.NewTicker(*poll)
 	defer ticker.Stop()
 	for {
+		// #nosec G115 -- nodeID is rejected above unless it fits exactly in uint32.
 		lifecycle, err := synchronize(ctx, controls, uint32(*nodeID), *runtimeVersion, started, *evidenceDirectory)
 		if err != nil && ctx.Err() == nil {
 			_, _ = fmt.Fprintf(os.Stderr, "pilot-control-agent: synchronize: %v\n", err)
@@ -89,6 +90,7 @@ func main() {
 			if err != nil {
 				fatalf("resolve executable: %v", err)
 			}
+			// #nosec G204,G702 -- restart re-execs the current OS-resolved binary directly; no shell or authority-supplied command is involved.
 			if err := syscall.Exec(executable, os.Args, os.Environ()); err != nil {
 				fatalf("restart process: %v", err)
 			}
@@ -243,6 +245,7 @@ func writeDiagnostics(directory, commandID, runtimeVersion string, policyRevisio
 
 func appendEvidence(directory string, event evidenceEvent) error {
 	path := filepath.Join(directory, "control-events.jsonl")
+	// #nosec G304 -- path is a fixed filename beneath the owner-only evidence directory established at startup.
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err

@@ -641,6 +641,7 @@ shutdownLoop:
 			return
 		}
 		slog.Info("restarting daemon after graceful shutdown")
+		// #nosec G204,G702 -- restart re-execs the current OS-resolved daemon directly; signed fleet commands cannot supply a path or arguments.
 		if err := syscall.Exec(executable, os.Args, os.Environ()); err != nil {
 			slog.Error("remote daemon restart failed", "err", err)
 		}
@@ -678,11 +679,14 @@ func synchronizeFleetControl(ctx context.Context, controls *enterprisecontrol.Ru
 		}
 	}
 	status := enterprisecontrol.FleetNodeStatus{
-		NodeID:         info.NodeID,
-		AgentVersion:   info.Version,
-		UptimeSeconds:  uint64(health.Uptime.Seconds()),
-		Connections:    uint32(health.Connections),
-		Peers:          uint32(health.Peers),
+		NodeID:        info.NodeID,
+		AgentVersion:  info.Version,
+		UptimeSeconds: uint64(health.Uptime.Seconds()),
+		// #nosec G115 -- daemon counters are non-negative in-memory collection sizes and cannot exceed the process address space.
+		Connections: uint32(health.Connections),
+		// #nosec G115 -- daemon counters are non-negative in-memory collection sizes and cannot exceed the process address space.
+		Peers: uint32(health.Peers),
+		// #nosec G115 -- daemon counters are non-negative in-memory collection sizes and cannot exceed the process address space.
 		EncryptedPeers: uint32(health.EncryptedPeers),
 		BytesSent:      health.BytesSent,
 		BytesReceived:  health.BytesRecv,

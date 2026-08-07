@@ -507,6 +507,7 @@ func readEnterpriseJSON[T any](path, label string) T {
 	if err := enterpriseCertificateFile(path); err != nil {
 		fatalCode("invalid_argument", "%s: %v", label, err)
 	}
+	// #nosec G304 -- path is explicit operator input and enterpriseCertificateFile rejects unsafe file types and permissions first.
 	file, err := os.Open(path)
 	if err != nil {
 		fatalCode("invalid_argument", "%s: %v", label, err)

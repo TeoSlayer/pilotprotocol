@@ -165,6 +165,7 @@ func (bundle TrustBundle) Canonical() ([]byte, error) {
 	writer.i64(bundle.IssuedAt)
 	writer.i64(bundle.ExpiresAt)
 	writer.string(bundle.RootKeyID)
+	// #nosec G115 -- Validate limits keys to MaxBundleKeys, which is below uint16 capacity.
 	writer.u16(uint16(len(keys)))
 	for _, key := range keys {
 		writer.string(key.KeyID)
@@ -172,6 +173,7 @@ func (bundle TrustBundle) Canonical() ([]byte, error) {
 		writer.string(key.PublicKey)
 		usages := append([]KeyUsage(nil), key.Usages...)
 		sort.Slice(usages, func(i, j int) bool { return usages[i] < usages[j] })
+		// #nosec G115 -- AuthorityKey.Validate bounds usages below uint16 capacity.
 		writer.u16(uint16(len(usages)))
 		for _, usage := range usages {
 			writer.string(string(usage))
@@ -288,6 +290,7 @@ func (writer *canonicalWriter) string(value string) {
 		writer.err = fmt.Errorf("authority: canonical string is too large")
 		return
 	}
+	// #nosec G115 -- the immediately preceding guard rejects lengths above uint32 capacity.
 	writer.write(uint32(len(value)))
 	if writer.err == nil {
 		_, writer.err = writer.WriteString(value)

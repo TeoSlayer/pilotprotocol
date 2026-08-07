@@ -236,6 +236,7 @@ func installEnrolledAttachment(outputDirectory string, claim authorityhttp.NodeE
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return "", err
 	}
+	// #nosec G302 -- this is a directory; owner-only 0700 is the intended secure mode.
 	if err := os.Chmod(parent, 0o700); err != nil {
 		return "", err
 	}

@@ -18,6 +18,7 @@ func validateHostExecutable(path string) error {
 }
 
 func validateExecutablePlatform(path, wantOS, wantArch string) error {
+	// #nosec G304 -- path is the explicitly selected installed adapter binary; this function only reads its fixed-size header.
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open executable: %w", err)

@@ -2135,6 +2135,7 @@ func readSecureBytes(path string) ([]byte, error) {
 	if info.Mode().Perm()&0o022 != 0 {
 		return nil, fmt.Errorf("must not be group- or world-writable")
 	}
+	// #nosec G304 -- callers provide fixed managed-state paths; the regular-file, no-symlink and permission checks above are mandatory.
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -2295,6 +2296,7 @@ func atomicWriteSecureBytes(path string, contents []byte) error {
 	if err := os.Rename(temporaryPath, path); err != nil {
 		return fmt.Errorf("commit temporary file: %w", err)
 	}
+	// #nosec G304 -- directory is the parent of the already-confined managed state file and is opened only to fsync the atomic rename.
 	directoryFile, err := os.Open(directory)
 	if err != nil {
 		return fmt.Errorf("open parent directory: %w", err)

@@ -25,8 +25,8 @@ const DefaultMaxResponseBytes int64 = 1 << 20
 
 const (
 	modelCallsHeader        = "X-Pilot-Model-Calls"
-	modelInputTokensHeader  = "X-Pilot-Model-Input-Tokens"
-	modelOutputTokensHeader = "X-Pilot-Model-Output-Tokens"
+	modelInputTokensHeader  = "X-Pilot-Model-Input-Tokens"  // #nosec G101 -- HTTP usage-metering header name, not a credential.
+	modelOutputTokensHeader = "X-Pilot-Model-Output-Tokens" // #nosec G101 -- HTTP usage-metering header name, not a credential.
 )
 
 type Client struct {

@@ -113,6 +113,7 @@ func (command FleetCommand) Canonical() ([]byte, error) {
 	writer.u16(command.Version)
 	writer.string(command.ID)
 	writer.string(command.TenantID)
+	// #nosec G115 -- Validate limits targets to MaxFleetTargets, which is below uint16 capacity.
 	writer.u16(uint16(len(targets)))
 	for _, target := range targets {
 		writer.string(target)
@@ -275,6 +276,7 @@ func (report FleetNodeReport) Canonical() ([]byte, error) {
 			right, _ := registry.CanonicalName(capabilities[j].Action)
 			return left < right
 		})
+		// #nosec G115 -- report validation bounds capabilities below uint16 capacity.
 		writer.u16(uint16(len(capabilities)))
 		for _, capability := range capabilities {
 			canonical, _ := registry.CanonicalName(capability.Action)

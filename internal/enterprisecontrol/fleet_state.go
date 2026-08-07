@@ -337,6 +337,7 @@ func scanFleetState(root, cursorPath string) ([]authority.FleetStateEntry, error
 
 func scanFleetStateFile(filename string, entry authority.FleetStateEntry, budget int) (authority.FleetStateEntry, error) {
 	entry.Kind = authority.FleetStateFile
+	// #nosec G304 -- filename is produced by WalkDir beneath the configured, owner-only fleet state root.
 	file, err := os.Open(filename)
 	if err != nil {
 		return entry, err
@@ -364,6 +365,7 @@ func scanFleetStateFile(filename string, entry authority.FleetStateEntry, budget
 		want = int64(budget)
 	}
 	contents := make([]byte, int(want))
+	// #nosec G304 -- same WalkDir-confined path as the hash pass above; only a bounded preview is read.
 	file, err = os.Open(filename)
 	if err != nil {
 		return entry, err
@@ -394,6 +396,7 @@ func scanFleetStateFile(filename string, entry authority.FleetStateEntry, budget
 		}
 	}
 	entry.Content = contents
+	// #nosec G115 -- offset is initialized to zero and only assigned size-want where size >= want.
 	entry.ContentOffset = uint64(offset)
 	entry.Truncated = offset > 0
 	contentHash := sha256.Sum256(contents)
@@ -544,6 +547,7 @@ func prepareFleetStateMutation(root string, mutation authority.FleetStateMutatio
 	if err != nil {
 		return nil, err
 	}
+	// #nosec G302 -- backupRoot is a directory; owner-only 0700 is the intended secure mode.
 	if err := os.Chmod(backupRoot, 0o700); err != nil {
 		_ = os.RemoveAll(backupRoot)
 		return nil, err
@@ -716,6 +720,7 @@ func fleetMutationPathProtected(relative string) bool {
 }
 
 func hashFleetFile(filename string) (string, error) {
+	// #nosec G304 -- filename has already passed confinedFleetPath beneath the private fleet state root.
 	file, err := os.Open(filename)
 	if err != nil {
 		return "", err
