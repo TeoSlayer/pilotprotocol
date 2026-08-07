@@ -17,7 +17,7 @@ import (
 // daemonapi.Connection requires Info() ConnectionInfo. Bolted onto
 // *Connection here (rather than ports.go) so the I/O-heavy types in
 // ports.go stay free of plugin-API concerns and the interface
-// fulfilment lives next to its adapter siblings.
+// fulfillment lives next to its adapter siblings.
 
 // Info returns an endpoint snapshot for plugin consumption. Required
 // by daemonapi.Connection (common@v0.4.3).

@@ -79,7 +79,7 @@
     },
     {
       "name": "postgres.list",
-      "summary": "List the databases on the server (owner, encoding, collation, access privileges) as an aligned table — a quick connectivity + inventory chec"
+      "summary": "List the databases on the server (owner, encoding, collation, access privileges) as an aligned table — a quick connectivity + inventory check"
     },
     {
       "name": "postgres.exec",
