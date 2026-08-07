@@ -93,7 +93,7 @@ func (client *Client) ExecuteWorkflow(ctx context.Context, transactionID string,
 }
 
 func (client *Client) WorkflowStatus(ctx context.Context, transactionID string) (WorkflowRecord, error) {
-	return client.workflowStatus(ctx, "/v1/workflow-status", transactionID)
+	return client.workflowStatus(ctx, "/v1/workflow-status", transactionID, true)
 }
 
 // ManagementWorkflowStatus returns a workflow record through the separately
@@ -101,7 +101,20 @@ func (client *Client) WorkflowStatus(ctx context.Context, transactionID string) 
 // authority's management mTLS identity; it does not grant an uncredentialed
 // caller any management authority itself.
 func (client *Client) ManagementWorkflowStatus(ctx context.Context, transactionID string) (WorkflowRecord, error) {
-	return client.workflowStatus(ctx, "/v1/manage/workflow-status", transactionID)
+	return client.workflowStatus(ctx, "/v1/manage/workflow-status", transactionID, false)
+}
+
+// ConfigureWorkflowAgentRequestSigning authenticates participant status reads
+// without changing the already signed workflow mutation envelopes. Configure
+// the client before concurrent use.
+func (client *Client) ConfigureWorkflowAgentRequestSigning(tenantID, agentID string, signer func(*http.Request, string, string) error) error {
+	if client == nil || !validWorkflowClientIdentifier(tenantID) || !validWorkflowClientIdentifier(agentID) || signer == nil {
+		return fmt.Errorf("decisionhttp: invalid workflow agent request signing configuration")
+	}
+	client.workflowTenantID = tenantID
+	client.workflowAgentID = agentID
+	client.workflowAgentRequestSigner = signer
+	return nil
 }
 
 // ManagementWorkflows retrieves a bounded tenant-scoped list through the
@@ -144,7 +157,7 @@ func (client *Client) ManagementWorkflows(ctx context.Context, tenantID string, 
 	return append([]WorkflowRecord(nil), response.Workflows...), nil
 }
 
-func (client *Client) workflowStatus(ctx context.Context, path, transactionID string) (WorkflowRecord, error) {
+func (client *Client) workflowStatus(ctx context.Context, path, transactionID string, agentEndpoint bool) (WorkflowRecord, error) {
 	if client == nil || client.endpoint == nil || client.httpClient == nil {
 		return WorkflowRecord{}, fmt.Errorf("decisionhttp: client is not initialized")
 	}
@@ -155,12 +168,21 @@ func (client *Client) workflowStatus(ctx context.Context, path, transactionID st
 	endpoint.Path = path
 	query := url.Values{}
 	query.Set("transaction_id", transactionID)
+	if agentEndpoint && client.workflowAgentRequestSigner != nil {
+		query.Set("tenant_id", client.workflowTenantID)
+		query.Set("agent_id", client.workflowAgentID)
+	}
 	endpoint.RawQuery = query.Encode()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
 		return WorkflowRecord{}, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if agentEndpoint && client.workflowAgentRequestSigner != nil {
+		if err := client.workflowAgentRequestSigner(request, client.workflowTenantID, client.workflowAgentID); err != nil {
+			return WorkflowRecord{}, err
+		}
+	}
 	var record WorkflowRecord
 	if err := client.workflowResponse(request, &record); err != nil {
 		return WorkflowRecord{}, err
@@ -169,6 +191,19 @@ func (client *Client) workflowStatus(ctx context.Context, path, transactionID st
 		return WorkflowRecord{}, fmt.Errorf("decisionhttp: invalid workflow record: %w", err)
 	}
 	return record, nil
+}
+
+func validWorkflowClientIdentifier(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '-' || character == '_' || character == '.' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // CancelWorkflow requests an authority-signed terminal cancellation through

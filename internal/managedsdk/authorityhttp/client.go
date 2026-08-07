@@ -22,8 +22,9 @@ import (
 )
 
 type Client struct {
-	endpoint   *url.URL
-	httpClient *http.Client
+	endpoint           *url.URL
+	httpClient         *http.Client
+	agentRequestSigner *AgentRequestSigner
 }
 
 // TrustPublicationResult is the durable identity returned after the authority
@@ -116,6 +117,9 @@ func (client *Client) Candidate(ctx context.Context, tenantID, agentID string) (
 		return PublicationEnvelope{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return PublicationEnvelope{}, false, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return PublicationEnvelope{}, false, fmt.Errorf("authorityhttp: candidate: %w", err)
@@ -150,11 +154,20 @@ func (client *Client) CurrentTrust(ctx context.Context, tenantID string) (author
 	if !clientIdentifier(tenantID) {
 		return authority.TrustBundle{}, false, fmt.Errorf("authorityhttp: tenant identifier is required")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.route("/v1/trust-current", url.Values{"tenant_id": {tenantID}}), nil)
+	query := url.Values{"tenant_id": {tenantID}}
+	if client.agentRequestSigner != nil {
+		query.Set("agent_id", client.agentRequestSigner.agentID)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.route("/v1/trust-current", query), nil)
 	if err != nil {
 		return authority.TrustBundle{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if client.agentRequestSigner != nil {
+		if err := client.signAgentRequest(request, tenantID, client.agentRequestSigner.agentID); err != nil {
+			return authority.TrustBundle{}, false, err
+		}
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return authority.TrustBundle{}, false, fmt.Errorf("authorityhttp: current trust: %w", err)
@@ -191,6 +204,9 @@ func (client *Client) CurrentPolicy(ctx context.Context, tenantID, agentID strin
 		return ActivePolicyEnvelope{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return ActivePolicyEnvelope{}, false, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return ActivePolicyEnvelope{}, false, fmt.Errorf("authorityhttp: current policy: %w", err)
@@ -233,6 +249,9 @@ func (client *Client) CurrentMandateBundle(ctx context.Context, tenantID, agentI
 		return decision.MandateBundle{}, false, err
 	}
 	request.Header.Set("Accept", "application/json")
+	if err := client.signAgentRequest(request, tenantID, agentID); err != nil {
+		return decision.MandateBundle{}, false, err
+	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
 		return decision.MandateBundle{}, false, fmt.Errorf("authorityhttp: current mandates: %w", err)

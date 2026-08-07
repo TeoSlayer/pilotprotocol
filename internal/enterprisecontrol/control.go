@@ -558,6 +558,13 @@ func Load(path string) (*Runtime, error) {
 		if keyErr != nil || !bytes.Equal(publicKey, privateKey.Public().(ed25519.PublicKey)) {
 			return nil, fmt.Errorf("enterprise control: outbound decision seed does not match active agent intent key")
 		}
+		requestSigner, signerErr := authorityhttp.NewAgentRequestSigner(config.OutboundDecisions.AgentID, config.OutboundDecisions.IntentKeyID, privateKey)
+		if signerErr != nil {
+			return nil, fmt.Errorf("enterprise control: configure workflow request signer: %w", signerErr)
+		}
+		if signerErr = client.ConfigureWorkflowAgentRequestSigning(config.TenantID, config.OutboundDecisions.AgentID, requestSigner.Sign); signerErr != nil {
+			return nil, fmt.Errorf("enterprise control: configure authenticated workflow reads: %w", signerErr)
+		}
 		runtime.outboundClient = client
 		runtime.outboundAgentID = config.OutboundDecisions.AgentID
 		runtime.outboundKeyID = config.OutboundDecisions.IntentKeyID
@@ -660,6 +667,9 @@ func Load(path string) (*Runtime, error) {
 		publicKey, keyErr := runtime.trust.IntentKey(context.Background(), config.TenantID, config.Rollout.AgentID, config.Rollout.AcknowledgementKeyID)
 		if keyErr != nil || !bytes.Equal(publicKey, privateKey.Public().(ed25519.PublicKey)) {
 			return nil, fmt.Errorf("enterprise control: rollout acknowledgement seed does not match active agent intent key")
+		}
+		if signErr := client.ConfigureAgentRequestSigning(config.Rollout.AgentID, config.Rollout.AcknowledgementKeyID, privateKey); signErr != nil {
+			return nil, fmt.Errorf("enterprise control: configure authenticated node-plane reads: %w", signErr)
 		}
 		runtime.rolloutClient = client
 		runtime.rolloutAgentID = config.Rollout.AgentID
