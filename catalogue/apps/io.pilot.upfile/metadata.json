@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.upfile",
+  "display_name": "Upfile",
+  "tagline": "Upload a file, get a permanent URL. One call to sign up, one to upload.",
+  "description_md": "Upfile turns a file on the host into a URL an agent can hand to a human or another service. There is no dashboard and no browser step anywhere in the loop: `upfile.signup` creates an account and saves the key locally, and from then on `upfile.upload` returns a live, permanent link.\n\n**Everything returns JSON.** The upload methods emit `{id, url, visibility, size, type, expires_at, storage_used, storage_limit}`, so an agent reads `.url` rather than scraping console output.\n\n**Three shapes of link.** A plain upload is public and permanent — an unauthenticated URL that keeps working. `upload_private` puts it behind authentication. `upload_expiring` gives it a TTL in seconds, which is the right choice for build logs, debug dumps, and anything you would rather not leave permanently reachable.\n\n**Housekeeping.** `status` shows tier and quota, `list` enumerates what is stored with each file's id, and `remove` deletes one by id and reclaims the space. The free tier is 1GB total across all files.\n\nThe CLI ships with the app as a per-platform binary verified by sha256 at install, so there is no Node install and no package manager involved on the host.",
+  "vendor": {
+    "name": "Upfile",
+    "url": "https://upfile.sh",
+    "contact": "hello@upfile.sh",
+    "publisher_pubkey": "ed25519:zIs4w96eibc78b08fI5FtJFSAliQ+veFSeBFThkFNjw="
+  },
+  "homepage": "https://upfile.sh",
+  "source_url": "https://github.com/upfilesh/cli",
+  "license": "MIT",
+  "categories": [
+    "developer-tools",
+    "storage"
+  ],
+  "keywords": [
+    "upload",
+    "file-sharing",
+    "cli",
+    "cdn",
+    "permanent url",
+    "expiring link",
+    "artifacts",
+    "agents"
+  ],
+  "size": {
+    "bundle_bytes": 5354771,
+    "installed_bytes": 9624983
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "upfile.signup",
+      "summary": "START HERE if this host has no API key. Creates an Upfile account and saves the key to the local CLI config, so every later call authenticates automatically. No browser, no dashboard, no verification step. The account starts on the free tier: 1GB of storage. Everything else fails with No API key until this has been run."
+    },
+    {
+      "name": "upfile.upload",
+      "summary": "Upload a file from this host and get back a permanent, immediately-live URL. Returns JSON: {id, url, visibility, size, type, originalName, expires_at, created_at, storage_used, storage_limit}. Read .url. Public by default, which means an unauthenticated permanent link, so use upfile.upload_private or upfile.upload_expiring for anything you would not want to stay reachable."
+    },
+    {
+      "name": "upfile.upload_private",
+      "summary": "Upload a file as private, so the returned URL requires authentication rather than being open to anyone holding the link. Same JSON shape as upfile.upload, with visibility private."
+    },
+    {
+      "name": "upfile.upload_expiring",
+      "summary": "Upload a file with a time-to-live, so the link stops working on its own. Use this for build logs, debug dumps, and anything you would rather not have permanently indexed. Same JSON shape as upfile.upload, with expires_at set."
+    },
+    {
+      "name": "upfile.status",
+      "summary": "Show the account tier and how much of the storage quota is used, e.g. Tier: free  Storage: 0.01GB / 1GB. Also the quickest way to tell whether this host has a key at all: without one it prints No API key, which means run upfile.signup first."
+    },
+    {
+      "name": "upfile.list",
+      "summary": "List the files stored on this account as JSON, newest first, with each file's id and URL. The ids are what upfile.remove takes."
+    },
+    {
+      "name": "upfile.remove",
+      "summary": "Delete one stored file by its id, reclaiming its space against the quota. IRREVERSIBLE: the URL stops resolving immediately."
+    },
+    {
+      "name": "upfile.version",
+      "summary": "Print the Upfile CLI version bundled with this app."
+    },
+    {
+      "name": "upfile.cli_help",
+      "summary": "The Upfile CLI's own full help text, listing every subcommand and flag including any not curated as a named method here."
+    },
+    {
+      "name": "upfile.run",
+      "summary": "Escape hatch: run the Upfile CLI with an arbitrary argv array, for anything the named methods do not cover such as config set/get, upgrade, or stdin uploads. Payload is {args:[...]}. Prefer the named methods when one fits, because they return JSON."
+    },
+    {
+      "name": "upfile.help",
+      "summary": "Discovery: every method with params, latency, and description."
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/upfilesh/cli"
+    },
+    {
+      "label": "Website",
+      "url": "https://upfile.sh"
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.2.3",
+      "date": "2026-08-06",
+      "notes": [
+        "First release on the Pilot app store."
+      ]
+    }
+  ],
+  "product_demo": {
+    "skill": "io.pilot.upfile",
+    "title": "Full usage demo",
+    "metered": false,
+    "when_to_use": "When your agent has produced a file — a render, a report, a screenshot, a log — and needs a URL it can paste somewhere a human or another service will open.",
+    "quickstart": {
+      "goal": "Get an account and an API key with one call",
+      "command": "pilotctl appstore call io.pilot.upfile upfile.signup '{\"email\":\"you@example.com\"}'",
+      "expect": "Account created. API key: upf_... Tier: free (1GB). Key saved.",
+      "note": "The key is written to the CLI config on this host, so every later call just works. No dashboard, no browser."
+    },
+    "examples": [
+      {
+        "title": "Upload a file and get a permanent URL",
+        "goal": "The core loop, in one call",
+        "command": "pilotctl appstore call io.pilot.upfile upfile.upload '{\"path\":\"/tmp/report.pdf\"}'",
+        "expect": "{\"id\":\"tRbBqIyEiB\",\"url\":\"https://cdn.upfile.sh/tRbBqIyEiB.pdf\",\"visibility\":\"public\",\"size\":6941}",
+        "note": "The URL is live immediately and permanent. Always JSON, so read .url straight out of it."
+      },
+      {
+        "title": "Upload something that should not live forever",
+        "goal": "A link that expires on its own",
+        "command": "pilotctl appstore call io.pilot.upfile upfile.upload_expiring '{\"path\":\"/tmp/build.log\",\"expiry\":3600}'",
+        "expect": "{\"id\":\"...\",\"url\":\"https://cdn.upfile.sh/....log\",\"expires_at\":\"2026-08-06T17:00:00.000Z\"}",
+        "note": "expiry is seconds. Use it for anything you would not want indexed a year from now."
+      },
+      {
+        "title": "Check what you have stored",
+        "command": "pilotctl appstore call io.pilot.upfile upfile.status '{}'",
+        "expect": "Tier: free  Storage: 0.01GB / 1GB",
+        "note": "Free tier is 1GB. upfile.list shows individual files; upfile.remove deletes one by id."
+      }
+    ],
+    "gotchas": [
+      "Run upfile.signup once per host if there is no key. Everything else fails with No API key until you do.",
+      "Read .url from the JSON — the human-readable output is not stable.",
+      "A plain upload is a permanent, unauthenticated URL. Use upload_private or upload_expiring for anything sensitive.",
+      "expiry is in SECONDS, not minutes. 3600 is an hour.",
+      "Free tier is 1GB total, not per file. Use upfile.remove to reclaim space."
+    ],
+    "next": [
+      "io.pilot.upfile upfile.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.upfile",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "why": "the CLI has no API key on this host yet, so nothing will work until an account exists",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.upfile upfile.signup '{\"email\":\"you@example.com\"}'",
+            "why": "one call creates the account and saves the key locally; no browser and no dashboard",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "upfile.signup",
+        "on": "ok",
+        "why": "the key is saved on this host, so the next move is to put a file somewhere shareable",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.upfile upfile.upload '{\"path\":\"/tmp/report.pdf\"}'",
+            "why": "returns JSON with a permanent .url you can hand to a human or another service",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "upfile.upload",
+        "on": "ok",
+        "why": "the file is live at a permanent public URL, which is worth knowing before you share it",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.upfile upfile.status '{}'",
+            "why": "free tier is 1GB total; check headroom and use upfile.remove to reclaim space",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "upfile.upload",
+        "on": "err",
+        "why": "the upload was rejected, most often because there is no API key or the path does not exist",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.upfile upfile.status '{}'",
+            "why": "if this says No API key, run upfile.signup; otherwise check the path is readable on this host",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  },
+  "published_at": "2026-08-06",
+  "updated_at": "2026-08-06"
+}

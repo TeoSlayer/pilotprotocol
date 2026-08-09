@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.rentahuman",
+  "display_name": "Rent A Human",
+  "tagline": "Hire a real person for a physical-world task, in plain language, and talk to ops until it is done.",
+  "description_md": "Rent A Human gives an agent hands in the physical world. Describe a task the way a person would — \"deep clean a 2-bedroom apartment in the Mission by Friday, budget $150\" — and a human ops coordinator at RentAHuman sources and vets a real person to do it. Everything after that happens on a message thread your agent polls.\n\n**This is the Partner API, not the marketplace.** There is no account for your user to create, no profile to browse, and no escrow for your agent to manage. One call creates a request; ops does the sourcing, vetting and scheduling; your agent reads status and messages and answers questions. When work is priced, a payment link comes back for your agent to relay.\n\n**Your agent is the only channel.** RentAHuman never contacts your end customer. Quotes, questions, status changes and payment links are all addressed to your agent, even when the wording reads like \"tell the customer…\". You decide whether, when and how to relay each one. Nothing reaches your customer unless your agent sends it.\n\n**The loop.** `create_request` returns a `requestId`. Poll `get_request` and branch on `status`: `received` means ops has not replied yet; `needs_info` means they asked a question and progress is **blocked** until you answer with `send_message`; `quoted` means a price and usually a payment link are waiting to be relayed; then `scheduled`, `in_progress`, `completed`. `list_requests` shows everything in flight.\n\n**Edge cases.** `task` and `details` are moderated, so rejected text returns 400 with an explanation and should be rewritten rather than retried. `requesterPhoneNumber` must be E.164 and is customer PII. `budgetUsd` is the budget before fees. A `requestId` you do not own returns 404, exactly like one that does not exist, so ids cannot be enumerated. `list_bounties` needs the referrals capability and otherwise returns 403.",
+  "vendor": {
+    "name": "Rent A Human",
+    "url": "https://rentahuman.ai",
+    "contact": "support@rentahuman.ai",
+    "publisher_pubkey": "ed25519:QTyAHrEdOXcLfS/L/f6xBH+zaZ7Rou5+Ng74Al21uLU="
+  },
+  "homepage": "https://rentahuman.ai",
+  "source_url": "https://rentahuman.ai/docs/partners",
+  "license": "Proprietary",
+  "categories": [
+    "automation",
+    "marketplace",
+    "agents"
+  ],
+  "keywords": [
+    "humans",
+    "real-world tasks",
+    "errands",
+    "cleaning",
+    "on-site",
+    "human-in-the-loop",
+    "concierge",
+    "physical world",
+    "ops"
+  ],
+  "size": {
+    "bundle_bytes": 5076880,
+    "installed_bytes": 9132418
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "rentahuman.create_request",
+      "summary": "START HERE. Ask for a human to do something in the physical world, in plain language. A real ops coordinator reads it, sources and vets a person, and replies on a message thread you poll with get_request. Returns {requestId, status:\"received\", request}. Keep the requestId — every other method hangs off it. task and details pass a content-moderation check; rejected text returns 400 with an explanation, so rewrite rather than retry. The more context you give (access notes, preferences, constraints) the fewer needs_info round-trips."
+    },
+    {
+      "name": "rentahuman.get_request",
+      "summary": "Read one request: its current status and the full message thread with the ops coordinator. THIS IS THE POLL TARGET after create_request. Branch on status, not on success: received (logged, ops has not replied — tell the customer it is in, nothing else) | needs_info (ops asked a question and progress is BLOCKED until you answer via send_message) | quoted (a price, usually with paymentLinks[].url, is waiting — relay it verbatim) | scheduled (booked) | in_progress (someone is on it) | completed (terminal) | cancelled (terminal, read the final message for the reason). A requestId you do not own returns 404, identical to one that does not exist."
+    },
+    {
+      "name": "rentahuman.send_message",
+      "summary": "Send a follow-up message to the ops coordinator on a request — answer their question, or relay your customer's decision. This is the way out of a needs_info status. The message goes to OPS, not to your customer: nothing here is seen by the person who asked. Max 5,000 characters, moderated."
+    },
+    {
+      "name": "rentahuman.list_requests",
+      "summary": "List your requests, newest first, so an agent can see everything in flight at once. Cursor-paginated: pass the previous response's nextCursor, which is null on the last page. There is no server-side status filter — read the status field on each item and act on the ones that block, which are needs_info and quoted."
+    },
+    {
+      "name": "rentahuman.list_bounties",
+      "summary": "List open marketplace bounties, each with a tracked referral URL, for agents that want to surface paid real-world work rather than commission it. Requires the referrals capability on the account; without it this returns 403, which is a permission fact rather than a transient error."
+    },
+    {
+      "name": "rentahuman.help",
+      "summary": "Discovery: every method with params, latency, and description."
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://rentahuman.ai/docs/partners"
+    },
+    {
+      "label": "Website",
+      "url": "https://rentahuman.ai"
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.2.0",
+      "date": "2026-08-06",
+      "notes": [
+        "First release on the Pilot app store."
+      ]
+    }
+  ],
+  "product_demo": {
+    "skill": "io.pilot.rentahuman",
+    "title": "Full usage demo",
+    "when_to_use": "When a task needs hands in the physical world — a clean, a pickup, an errand, an on-site check — and your agent needs a real person to do it and report back.",
+    "metered": false,
+    "quickstart": {
+      "goal": "Ask for a human to do something, in plain language",
+      "command": "pilotctl appstore call io.pilot.rentahuman rentahuman.create_request '{\"task\":\"Deep clean a 2-bedroom apartment\",\"externalChatId\":\"thread-9f2a41c7\",\"requesterPhoneNumber\":\"+14155550100\",\"budgetUsd\":150,\"location\":\"Mission District, San Francisco, CA\"}'",
+      "expect": "{\"success\":true,\"requestId\":\"8FQxJ0N2VvR5aYc31TZk\",\"status\":\"received\",\"request\":{...}}",
+      "note": "A human ops coordinator picks this up and sources a vetted person. Keep the requestId — everything else hangs off it."
+    },
+    "examples": [
+      {
+        "title": "Poll the request and read the thread",
+        "goal": "status is the branch point, not success",
+        "command": "pilotctl appstore call io.pilot.rentahuman rentahuman.get_request '{\"requestId\":\"8FQxJ0N2VvR5aYc31TZk\"}'",
+        "expect": "{\"success\":true,\"request\":{\"status\":\"quoted\",\"paymentLinks\":[{\"url\":\"https://...\"}]}}",
+        "note": "received -> needs_info -> quoted -> scheduled -> in_progress -> completed. needs_info BLOCKS until you answer; quoted means relay the price and payment link."
+      },
+      {
+        "title": "Answer an ops question",
+        "goal": "Unblock a needs_info request by relaying your customer's answer",
+        "command": "pilotctl appstore call io.pilot.rentahuman rentahuman.send_message '{\"requestId\":\"8FQxJ0N2VvR5aYc31TZk\",\"message\":\"Customer confirms 8pm tomorrow works, and there is a cat.\"}'",
+        "expect": "{\"success\":true,\"messageId\":\"3NcVb8sDf1gHj6kQw0Pz\"}",
+        "note": "This goes to the ops coordinator, not to your customer. Nothing you send here reaches them."
+      },
+      {
+        "title": "See everything in flight",
+        "command": "pilotctl appstore call io.pilot.rentahuman rentahuman.list_requests '{\"limit\":20}'",
+        "expect": "{\"success\":true,\"requests\":[{\"requestId\":\"...\",\"status\":\"quoted\"}],\"nextCursor\":null}",
+        "note": "Newest first, cursor-paginated. No server-side status filter — read status per item."
+      }
+    ],
+    "gotchas": [
+      "Nothing reaches your customer unless YOU send it. Ops replies, quotes and payment links are all addressed to your agent.",
+      "Branch on status, not success. needs_info blocks progress until you answer; quoted means a price and link are waiting.",
+      "requesterPhoneNumber is customer PII — keep it server-side, out of logs and URLs.",
+      "task and details are moderated. A 400 means rewrite, not retry.",
+      "budgetUsd is before fees (1-100000). Always pass dueBy if the customer gave a deadline."
+    ],
+    "next": [
+      "io.pilot.rentahuman rentahuman.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.rentahuman",
+    "edges": [
+      {
+        "from": "rentahuman.create_request",
+        "on": "ok",
+        "why": "ops has the request but has not replied yet, so the next move is to watch the status rather than send anything",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.rentahuman rentahuman.get_request '{\"requestId\":\"<requestId-from-create>\"}'",
+            "why": "poll this; status moves received -> needs_info -> quoted -> scheduled -> in_progress -> completed",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "rentahuman.get_request",
+        "on": "ok",
+        "match": "\"status\"\\s*:\\s*\"needs_info\"",
+        "why": "ops asked a question and the request is blocked until it is answered",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.rentahuman rentahuman.send_message '{\"requestId\":\"<id>\",\"message\":\"<your customer's answer>\"}'",
+            "why": "read the newest ops message, get the answer from your customer, then reply here to unblock it",
+            "kind": "recovery"
+          }
+        ]
+      },
+      {
+        "from": "rentahuman.get_request",
+        "on": "ok",
+        "match": "\"status\"\\s*:\\s*\"quoted\"",
+        "why": "ops proposed a price and usually a payment link; nothing moves until your customer sees it and pays",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.rentahuman rentahuman.get_request '{\"requestId\":\"<id>\"}'",
+            "why": "relay the quote and paymentLinks[].url to your customer verbatim, then poll for scheduled",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "rentahuman.create_request",
+        "on": "err",
+        "code": 400,
+        "why": "the body was rejected: task, externalChatId, requesterPhoneNumber and budgetUsd are required, and text is moderated",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.rentahuman rentahuman.create_request '{\"task\":\"<plain language task>\",\"externalChatId\":\"<stable thread id>\",\"requesterPhoneNumber\":\"+14155550100\",\"budgetUsd\":150}'",
+            "why": "phone must be E.164 and budgetUsd 1-100000; if moderation rejected the text, rewrite it rather than retrying",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  },
+  "published_at": "2026-08-06",
+  "updated_at": "2026-08-06"
+}
