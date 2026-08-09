@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "id": "io.pilot.dial",
+  "display_name": "Dial",
+  "tagline": "A complete phone identity for your agent — voice calls, SMS and iMessage on a real US number, provisioned in one call.",
+  "description_md": "Dial gives your agent its own real phone number: place and receive AI voice calls, send and receive SMS and iMessage, and wait on inbound events without polling. Bring your Dial API key at install time and every method authenticates as your own account. The account is yours, works outside Pilot too, and starts with $5 of credit and no credit card. No key yet? dial.signup emails a 6-digit code and dial.verify exchanges it for one. What you can do - Call people. dial.place_call runs an autonomous AI voice call from your number: book a table, chase a delivery, return a missed call. Pass transferTo and it waits out hold music and IVR menus, then cold-transfers to your human the moment a real person answers — never to a recording. Poll dial.get_call for the transcript, or block on dial.wait_for_event. - Give the call your tools. Connect a Context MCP and your MCP server tools become available to the voice agent DURING the call, so it can look something up or take an action mid-conversation. Dial runs the OAuth 2.1 flow and keeps the token fresh in the background. - Text people. dial.send_message delivers over iMessage when the recipient supports it and falls back to SMS otherwise, same call either way. Show a typing indicator first with dial.typing. - Wait, do not poll. dial.wait_for_event blocks until an inbound reply, a 2FA code, or a finished call shows up. A 408 means try again, not an error. - Own the identity. Set each number inbound behavior, voice and language, and on iMessage numbers the display name and avatar recipients see in Messages. Cost Reads are free. $3/month per number. US SMS $0.02 per segment. Managed voice $0.22/min all-in; self-hosted voice $0.13/min if you bring your own LLM over a WebSocket. Your $5 signup credit covers the first usage and spend pauses at $0 rather than surprising you. Good to know A brand-new account is on the free tier until it is topped up, which caps calls at 5 minutes and 2 concurrent calls. Both lift permanently on the first top-up. Emergency and crisis numbers are blocked. Always pass numbers in E.164, e.g. +14155551234. Every method, its parameters and latency class are discoverable at runtime via dial.help.",
+  "vendor": {
+    "name": "GetDial AI",
+    "url": "https://getdial.ai",
+    "contact": "support@getdial.ai",
+    "publisher_pubkey": "ed25519:4+6jaenHAng/cA34o1er4C22zXCdjnoL0VxF5q1X9Lc="
+  },
+  "homepage": "https://getdial.ai",
+  "source_url": "https://github.com/GetDial-AI/cli",
+  "license": "MIT",
+  "categories": [
+    "communications",
+    "phone",
+    "voice",
+    "messaging"
+  ],
+  "keywords": [
+    "phone",
+    "sms",
+    "imessage",
+    "voice",
+    "calls",
+    "telephony",
+    "agent",
+    "mcp",
+    "webhooks"
+  ],
+  "size": {
+    "bundle_bytes": 5065101,
+    "installed_bytes": 9159494
+  },
+  "compat": {
+    "min_pilot_version": "1.10.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "dial.status",
+      "summary": "Your account: credit balance, plan, and the limits currently in force (max call duration, max concurrent calls). Free. Call this first to orient."
+    },
+    {
+      "name": "dial.usage",
+      "summary": "Activity analytics: message and call counts, voice minutes, per-day series, and busiest numbers. Free."
+    },
+    {
+      "name": "dial.signup",
+      "summary": "Start creating a Dial account. Emails a 6-digit code and returns a verificationId; pass both to dial.verify to finish. Only needed if you do not already have an API key."
+    },
+    {
+      "name": "dial.verify",
+      "summary": "Finish signup by exchanging the emailed code for an API key. The new account starts with $5 of credit and no card on file."
+    },
+    {
+      "name": "dial.list_numbers",
+      "summary": "Your phone numbers, with capabilities, setup status, and per-number inbound configuration. Free."
+    },
+    {
+      "name": "dial.buy_number",
+      "summary": "Provision a new US phone number. COSTS $3/month. Requires an explicit consent attestation because it spends money on behalf of the account holder, so confirm with your human first."
+    },
+    {
+      "name": "dial.get_number",
+      "summary": "One phone number by id. Free."
+    },
+    {
+      "name": "dial.set_number",
+      "summary": "Update a number: nickname, inbound behavior, voice, language, call ceiling, and (iMessage numbers only) the display name and avatar recipients see. Only the fields you send change. Free."
+    },
+    {
+      "name": "dial.release_number",
+      "summary": "Release a number. IRREVERSIBLE: the number is gone and the unused month is not refunded. Confirm with your human first."
+    },
+    {
+      "name": "dial.send_message",
+      "summary": "Send a text. Delivers over iMessage when the recipient supports it, otherwise SMS, same call either way. COSTS MONEY (US SMS $0.02 per segment). Pass exactly one of fromNumber or fromNumberId."
+    },
+    {
+      "name": "dial.list_messages",
+      "summary": "Your messages, inbound and outbound, newest first (up to the 100 most recent). Free. Poll this for replies, or prefer dial.wait_for_event to block until one arrives."
+    },
+    {
+      "name": "dial.typing",
+      "summary": "Show or clear a typing indicator before you reply. iMessage numbers display it; SMS numbers ignore it, so it is always safe to call. Sending a message clears it automatically. Free."
+    },
+    {
+      "name": "dial.place_call",
+      "summary": "Place an outbound AI voice call. Returns a call id immediately; the call runs in the background. COSTS MONEY per minute. Pass transferTo to have the agent wait out hold queues and IVR menus and hand the live call to a human when a real person answers. Poll dial.get_call, or block on dial.wait_for_event with call.ended."
+    },
+    {
+      "name": "dial.get_call",
+      "summary": "One call with its status and transcript once available. THE poll target after dial.place_call. Free."
+    },
+    {
+      "name": "dial.list_calls",
+      "summary": "Your calls, newest first (up to the 100 most recent), inbound and outbound. Free."
+    },
+    {
+      "name": "dial.end_call",
+      "summary": "Hang up a call that is still in progress. Free."
+    },
+    {
+      "name": "dial.wait_for_event",
+      "summary": "Block until a matching event arrives instead of polling. Use it for an inbound reply or a 2FA code (message.received) or a finished call (call.ended, call.transcribed). A 408 means the wait timed out: try again, it is not an error. Free."
+    },
+    {
+      "name": "dial.list_context_mcps",
+      "summary": "The MCP servers connected to your voice agent. Secrets and tokens are masked. Free."
+    },
+    {
+      "name": "dial.add_context_mcp",
+      "summary": "Connect an MCP server so its tools are available to your AI voice agent DURING calls, to look something up or take an action mid-conversation. Works unattended for servers needing no auth or a static header. An OAuth server instead returns an authorizationUrl and stays pending until a human grants consent in a browser. Free."
+    },
+    {
+      "name": "dial.remove_context_mcp",
+      "summary": "Disconnect an MCP server from your voice agent. Its tools stop being offered on future calls. Free."
+    },
+    {
+      "name": "dial.help",
+      "summary": "Discovery: every method with params, latency, and description."
+    }
+  ],
+  "links": [
+    {
+      "label": "Source",
+      "url": "https://github.com/GetDial-AI/cli"
+    },
+    {
+      "label": "Website",
+      "url": "https://getdial.ai"
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.0",
+      "date": "2026-08-06",
+      "notes": [
+        "Update: Dial on the Pilot app store — a real US phone number for an agent, with AI voice calls, SMS and iMessage."
+      ]
+    }
+  ],
+  "product_demo": {
+    "skill": "io.pilot.dial",
+    "title": "Full usage demo",
+    "metered": true,
+    "when_to_use": "When a task needs a phone: call a business and sit through the hold queue, text someone and wait for the reply, or receive a 2FA code on a real US number.",
+    "quickstart": {
+      "goal": "See your credit and the limits in force before spending anything",
+      "command": "pilotctl appstore call io.pilot.dial dial.status '{}'",
+      "expect": "{\"credit\":\"$5.00\",\"plan\":\"free\",\"maxCallDurationSeconds\":300,\"maxConcurrentCalls\":2}",
+      "cost": "$0.00 (read)",
+      "note": "Free. A new account starts with $5 and no card. No key yet? dial.signup emails a code and dial.verify exchanges it for one."
+    },
+    "examples": [
+      {
+        "title": "Get a number, then text someone",
+        "goal": "A number is the prerequisite for everything else",
+        "command": "pilotctl appstore call io.pilot.dial dial.buy_number '{\"areaCode\":\"415\",\"explicitProgrammaticConsent\":\"yes\"}'",
+        "expect": "{\"id\":\"num_...\",\"phoneNumber\":\"+14155550123\"}",
+        "cost": "$3.00/month",
+        "note": "Spends money, so it requires an explicit consent attestation — confirm with your human first. Then dial.send_message delivers over iMessage when the recipient supports it, else SMS."
+      },
+      {
+        "title": "Place a call and let it wait out the IVR",
+        "goal": "The thing an agent genuinely cannot do itself",
+        "command": "pilotctl appstore call io.pilot.dial dial.place_call '{\"to\":\"+14155550199\",\"fromNumber\":\"+14155550123\",\"outboundInstruction\":\"Ask if they take reservations for 4 at 8pm Friday\",\"transferTo\":\"+14155550100\"}'",
+        "expect": "{\"id\":\"call_...\",\"status\":\"queued\"}",
+        "cost": "$0.22/min",
+        "note": "transferTo hands the live call to your human the moment a real person answers — never to a recording. Poll dial.get_call for the transcript."
+      },
+      {
+        "title": "Block until the reply arrives, instead of polling",
+        "command": "pilotctl appstore call io.pilot.dial dial.wait_for_event '{\"eventType\":\"message.received\",\"timeout\":120}'",
+        "expect": "{\"event\":\"message.received\",\"message\":{\"body\":\"Your code is 481920\"}}",
+        "cost": "$0.00 (read)",
+        "note": "A 408 means try again, not an error. This is how you catch a 2FA code without spinning."
+      }
+    ],
+    "cost": {
+      "unit": "USD",
+      "free_budget": "$5.00 signup credit, no card",
+      "hard_cap_usd": 5.0,
+      "operations": [
+        {
+          "op": "reads (status, usage, list_*, get_call, wait_for_event)",
+          "price": "free"
+        },
+        {
+          "op": "dial.buy_number",
+          "price": "$3.00/month",
+          "note": "requires an explicit consent attestation"
+        },
+        {
+          "op": "dial.send_message",
+          "price": "$0.02 per SMS segment",
+          "note": "iMessage delivery where supported"
+        },
+        {
+          "op": "dial.place_call",
+          "price": "$0.22/min",
+          "note": "$0.13/min self-hosted if you bring your own LLM"
+        }
+      ],
+      "worked_total": "$3.44 — one number for a month ($3.00), one 2-minute call ($0.44), reads free. Inside the $5 signup credit."
+    },
+    "gotchas": [
+      "Reads are free; buying a number, texting and calling cost money. Check dial.status first.",
+      "dial.buy_number needs an explicit consent attestation because it spends — confirm with your human.",
+      "A new account is capped at 5-minute calls and 2 concurrent until the first top-up.",
+      "Always pass numbers in E.164, e.g. +14155551234. Emergency and crisis numbers are blocked.",
+      "Prefer dial.wait_for_event over polling; a 408 means retry, not failure."
+    ],
+    "next": [
+      "io.pilot.dial dial.help '{}'"
+    ]
+  },
+  "next_steps": {
+    "schema": 1,
+    "app": "io.pilot.dial",
+    "edges": [
+      {
+        "from": "*",
+        "on": "err",
+        "code": 401,
+        "why": "no Dial API key is configured on this host, so nothing will authenticate until there is one",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.dial dial.signup '{\"email\":\"you@example.com\"}'",
+            "why": "emails a 6-digit code and returns a verificationId; pass both to dial.verify to get a key and $5 of credit",
+            "kind": "gateway"
+          }
+        ]
+      },
+      {
+        "from": "dial.status",
+        "on": "ok",
+        "why": "you know the credit and the limits in force, so the next thing an agent needs is a number to act from",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.dial dial.list_numbers '{}'",
+            "why": "if this is empty you need dial.buy_number, which costs $3/month and needs explicit consent",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "dial.place_call",
+        "on": "ok",
+        "why": "the call runs in the background, so the id is a handle rather than a result",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.dial dial.wait_for_event '{\"eventType\":\"call.ended\",\"timeout\":300}'",
+            "why": "blocks until the call finishes instead of spinning on get_call; a 408 means try again",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "dial.send_message",
+        "on": "ok",
+        "why": "a sent text is only half a conversation; the reply is what the agent is usually waiting for",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.dial dial.wait_for_event '{\"eventType\":\"message.received\",\"timeout\":120}'",
+            "why": "long-polls for the inbound reply or 2FA code rather than polling list_messages",
+            "kind": "flow"
+          }
+        ]
+      },
+      {
+        "from": "dial.buy_number",
+        "on": "err",
+        "code": 400,
+        "why": "buying a number spends money, so it is refused without an explicit consent attestation",
+        "then": [
+          {
+            "cmd": "pilotctl appstore call io.pilot.dial dial.buy_number '{\"areaCode\":\"415\",\"explicitProgrammaticConsent\":\"yes\"}'",
+            "why": "confirm the $3/month charge with your human first, then pass explicitProgrammaticConsent",
+            "kind": "recovery"
+          }
+        ]
+      }
+    ]
+  },
+  "published_at": "2026-08-06",
+  "updated_at": "2026-08-06"
+}

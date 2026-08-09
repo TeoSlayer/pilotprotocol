@@ -756,6 +756,195 @@
         }
       },
       "publisher": "ed25519:BAsg7bdd2t0V9tFCkXRCWRgIdEuuWtJVEjjZp8HBgEg="
+    },
+    {
+      "id": "io.pilot.dial",
+      "version": "0.1.0",
+      "description": "Give your agent a real US phone number: AI voice calls, SMS and iMessage, with $5 of credit and no credit card.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.dial/0.1.0/io.pilot.dial-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "358e2a8142e47a3b1f49098446cf14701ee72ae56d99190eae7f25003381f5cf",
+      "display_name": "Dial",
+      "vendor": "GetDial AI",
+      "categories": [
+        "communications",
+        "phone",
+        "voice",
+        "messaging"
+      ],
+      "bundle_size": 5065101,
+      "source_url": "https://github.com/GetDial-AI/cli",
+      "license": "MIT",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.dial/metadata.json",
+      "metadata_sha256": "f186d648b2ed1b003c7dcef058752328e95a04dc212c260f678d4281fcb1938f",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.dial/0.1.0/io.pilot.dial-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "26de6566890fe5c161d6e0e2e4e8ded93459d731478bc6eb210db2f3965fe01d"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.dial/0.1.0/io.pilot.dial-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "dab25ca387755288466cb9f1042b00d4f67e79ebf3a674e99c4fef31571a30fc"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.dial/0.1.0/io.pilot.dial-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "358e2a8142e47a3b1f49098446cf14701ee72ae56d99190eae7f25003381f5cf"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.dial/0.1.0/io.pilot.dial-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "52faf72441e9794177096672f07471a30fa04232039f4eb2a9602b2b51e71ffd"
+        }
+      },
+      "publisher": "ed25519:4+6jaenHAng/cA34o1er4C22zXCdjnoL0VxF5q1X9Lc="
+    },
+    {
+      "id": "io.pilot.deadsimple",
+      "version": "0.1.0",
+      "description": "An email identity your agent can provision for itself in one call, then use to send, receive, reply on-thread, and pull one-time signup codes straight out of its own inbox.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.deadsimple/0.1.0/io.pilot.deadsimple-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "fb78ec417776d2f74968f6b2950addef7b02676006ebbb8f1a54b0d7d4002f04",
+      "display_name": "Dead Simple Email",
+      "vendor": "Dead Simple Email",
+      "categories": [
+        "communications",
+        "email"
+      ],
+      "bundle_size": 5094962,
+      "source_url": "https://deadsimple.email",
+      "license": "Proprietary",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.deadsimple/metadata.json",
+      "metadata_sha256": "2ae9be93614eb7ef6dd005728b4ba6eb76d7610136f8ffcac47a507f6f60ce03",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.deadsimple/0.1.0/io.pilot.deadsimple-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "cdee44ad3f56a4248c96a878f8e3def1603043420260848f7c4a77be7fb1ea95"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.deadsimple/0.1.0/io.pilot.deadsimple-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "0883f4c8d3bb190a79d2de5293bdec72a9d3baf6cdb17327100bbed676ea568b"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.deadsimple/0.1.0/io.pilot.deadsimple-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "fb78ec417776d2f74968f6b2950addef7b02676006ebbb8f1a54b0d7d4002f04"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.deadsimple/0.1.0/io.pilot.deadsimple-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "93d6fa24aab5a244715761bc63e18c4c55d6cd94cb65ffad05da77d1d5276b9f"
+        }
+      },
+      "publisher": "ed25519:YrlmRfsjQl+BhfUIo7LCWWL+lKsV5i+sA/Yl1FSZYTY="
+    },
+    {
+      "id": "io.pilot.kinetic",
+      "version": "1.0.0",
+      "description": "Run real pricing research with your own customers: pick the method that fits the decision, draft and preview the survey, collect responses, and read deterministic results with a narrative written from those numbers. Van Westendorp, Gabor-Granger, MaxDiff and choice-based conjoint.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-linux-amd64.tar.gz",
+      "bundle_sha256": "de6ca5cea98dc159b7f53e896e5e9dcc961737374756b97d81047384861c404d",
+      "display_name": "Kinetic Pricing",
+      "vendor": "Kinetic Pricing",
+      "categories": [
+        "business",
+        "analytics",
+        "research"
+      ],
+      "bundle_size": 5105093,
+      "source_url": "https://kineticpricing.com",
+      "license": "Proprietary",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.kinetic/metadata.json",
+      "metadata_sha256": "0a471b165f5b54f1ca36065e978206ffa5d8bb4acf12eec61683781b675936f0",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "98efe91576798f58e5532a253ae859d7497e26079352cadc9382897a21bf6cc3"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "ac70a2b24ae3ae36567c72dd322a7041363a4a72fcc3aa9c0f17f2c0b8078ba8"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-linux-amd64.tar.gz",
+          "bundle_sha256": "de6ca5cea98dc159b7f53e896e5e9dcc961737374756b97d81047384861c404d"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-linux-arm64.tar.gz",
+          "bundle_sha256": "0627c3f025ef71ace648bbd80462542426a94397c822f33806fb185e6f67d710"
+        }
+      },
+      "publisher": "ed25519:I7ktDsuAorlhFyayECjoRNmmn082xIQgvTvVeJ0aGMg="
+    },
+    {
+      "id": "io.pilot.rentahuman",
+      "version": "0.2.0",
+      "description": "Hire a real person for a physical-world task — a clean, a pickup, an errand, an on-site check — by describing it in plain language. A human ops coordinator sources and vets someone, then talks to your agent through a message thread until the work is done.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-linux-amd64.tar.gz",
+      "bundle_sha256": "9c1356527958da2c0e19f7a087a9f2e29eefba149fd01dc270645915a9c02fcb",
+      "display_name": "Rent A Human",
+      "vendor": "Rent A Human",
+      "categories": [
+        "automation",
+        "marketplace",
+        "agents"
+      ],
+      "bundle_size": 5076880,
+      "source_url": "https://rentahuman.ai/docs/partners",
+      "license": "Proprietary",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.rentahuman/metadata.json",
+      "metadata_sha256": "caef5d6bee521e47033c634930efde9ca61a7455acb7cb2e4f8fac36681efded",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "5d2bccda276cc12019776210e43240b0a0fc4e3f326deae8a8125efb2610d42f"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "a20445a662b8732f5aaaff9f58f5401ab77d0cc0ca0e510924803da77ac5deb6"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-linux-amd64.tar.gz",
+          "bundle_sha256": "9c1356527958da2c0e19f7a087a9f2e29eefba149fd01dc270645915a9c02fcb"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-linux-arm64.tar.gz",
+          "bundle_sha256": "6892cab3948f75784ce518b17ab2dc8f20f1c206dce9d36d6a52c0eb5c32a245"
+        }
+      },
+      "publisher": "ed25519:QTyAHrEdOXcLfS/L/f6xBH+zaZ7Rou5+Ng74Al21uLU="
+    },
+    {
+      "id": "io.pilot.upfile",
+      "version": "0.2.3",
+      "description": "Upload a file from the host and get a permanent URL back. One call to sign up, one to upload. Supports public, private and expiring links, and always returns JSON an agent can read.",
+      "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.upfile/0.2.3/io.pilot.upfile-0.2.3-linux-amd64.tar.gz",
+      "bundle_sha256": "cabb6f3b10eeadbe5d631fd06101c451345a6e3f7c36e6636fab3b0c10670044",
+      "display_name": "Upfile",
+      "vendor": "Upfile",
+      "categories": [
+        "developer-tools",
+        "storage"
+      ],
+      "bundle_size": 5354771,
+      "source_url": "https://github.com/upfilesh/cli",
+      "license": "MIT",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.upfile/metadata.json",
+      "metadata_sha256": "e195bacf17f517987aa6aa9d520574bfad85c4a5a91b1e7edb3affb866225f3f",
+      "bundles": {
+        "darwin/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.upfile/0.2.3/io.pilot.upfile-0.2.3-darwin-amd64.tar.gz",
+          "bundle_sha256": "63f772dadba4aaa129c3a70def4277b256dd6db9b9a736ddf3cb33116a18a857"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.upfile/0.2.3/io.pilot.upfile-0.2.3-darwin-arm64.tar.gz",
+          "bundle_sha256": "2fb46cfa6a938599659faa0ff753491aa81d2e5911775377cf24160caec907d6"
+        },
+        "linux/amd64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.upfile/0.2.3/io.pilot.upfile-0.2.3-linux-amd64.tar.gz",
+          "bundle_sha256": "cabb6f3b10eeadbe5d631fd06101c451345a6e3f7c36e6636fab3b0c10670044"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.upfile/0.2.3/io.pilot.upfile-0.2.3-linux-arm64.tar.gz",
+          "bundle_sha256": "ee988ad0da9d0079277b385f012230157ab9a677e7a498c7dd3aea5a5a6d780f"
+        }
+      },
+      "publisher": "ed25519:zIs4w96eibc78b08fI5FtJFSAliQ+veFSeBFThkFNjw="
     }
   ]
 }
