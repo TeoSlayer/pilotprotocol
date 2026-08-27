@@ -5,6 +5,7 @@ package enterprisecontrol
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -92,5 +93,41 @@ func TestReconcilePassesTheApprovedVersionToTheInstaller(t *testing.T) {
 	}
 	if state.Status != authority.FleetAppFailed {
 		t.Fatalf("a refused install must report failed, got %q", state.Status)
+	}
+}
+
+// A freshly adopted node has neither app root on disk: the supervisor creates
+// the install root only when it starts with apps already present, and nothing
+// creates the staging root at all. Reconcile therefore has to create both, or
+// it fails on every tick forever and no app can ever be installed. Found by
+// running the real end-to-end install against a newly adopted node.
+func TestReconcileCreatesBothAppRootsOnAFreshNode(t *testing.T) {
+	home := t.TempDir()
+	installRoot := filepath.Join(home, ".pilot", "apps")
+	stagingRoot := filepath.Join(home, ".pilot", "apps-pending")
+
+	for _, root := range []string{installRoot, stagingRoot} {
+		if _, err := os.Stat(root); !os.IsNotExist(err) {
+			t.Fatalf("precondition: %s already exists", root)
+		}
+		if err := ensureSecureDirectory(root); err != nil {
+			t.Fatalf("ensureSecureDirectory(%s): %v", root, err)
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			t.Fatalf("%s was not created: %v", root, err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("%s is not a directory", root)
+		}
+		// secureDirectory rejects group- or world-writable roots, so creation
+		// must not hand back something it will then refuse.
+		if info.Mode().Perm()&0o022 != 0 {
+			t.Fatalf("%s created group/world writable: %v", root, info.Mode().Perm())
+		}
+		// Idempotent: a second reconcile tick must not fail.
+		if err := ensureSecureDirectory(root); err != nil {
+			t.Fatalf("second call on %s failed: %v", root, err)
+		}
 	}
 }

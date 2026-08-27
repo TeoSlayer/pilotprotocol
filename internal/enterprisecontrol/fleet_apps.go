@@ -130,6 +130,18 @@ func boundedInstallerOutput(output []byte) string {
 // the desired document is delivered as a state mutation and then read from
 // disk, so reconciliation is correct even during a spell when the authority is
 // unreachable. Config load already refuses to enable apps without state sync.
+// ensureSecureDirectory creates path when absent, then applies the same
+// ownership and permission checks secureDirectory enforces. Creation is
+// deliberately here rather than at adoption: the roots are runtime-owned, and a
+// node whose apps directory is removed between reconciles must recover rather
+// than wedge.
+func ensureSecureDirectory(path string) error {
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+	return secureDirectory(path)
+}
+
 func (runtime *Runtime) HasAppReconcile() bool {
 	return runtime != nil && runtime.appsEnabled && runtime.fleetStateEnabled && runtime.fleetStateRoot != ""
 }
@@ -170,10 +182,15 @@ func (runtime *Runtime) ReconcileApps(ctx context.Context, installer AppInstalle
 	if err != nil {
 		return AppReconcileResult{}, err
 	}
-	if err := secureDirectory(installRoot); err != nil {
+	// Create both roots before validating them. Nothing else owns their
+	// creation: the supervisor makes the install root only when it starts with
+	// apps present, and the staging root has no other creator at all, so a
+	// freshly adopted node would fail this check on every tick forever. 0o700
+	// is what secureDirectory then demands.
+	if err := ensureSecureDirectory(installRoot); err != nil {
 		return AppReconcileResult{}, fmt.Errorf("enterprise control: app install root: %w", err)
 	}
-	if err := secureDirectory(stagingRoot); err != nil {
+	if err := ensureSecureDirectory(stagingRoot); err != nil {
 		return AppReconcileResult{}, fmt.Errorf("enterprise control: app staging root: %w", err)
 	}
 
