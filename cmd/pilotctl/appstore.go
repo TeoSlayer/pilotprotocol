@@ -1049,11 +1049,14 @@ func cmdAppStoreInstall(args []string) {
 		case "--force", "-f":
 			force = true
 		case "--version":
+			// Read the value before advancing so the bound is checked against
+			// the index actually used.
 			if i+1 >= len(args) {
 				fatalHint("invalid_argument", "usage: --version <exact-catalogue-version>", "--version needs a value")
+				return
 			}
+			wantVersion = args[i+1]
 			i++
-			wantVersion = args[i]
 		case "--local":
 			// Required acknowledgement when installing from a local
 			// directory. Catalogue installs ignore this; path installs

@@ -1,6 +1,6 @@
 module github.com/pilot-protocol/pilotprotocol
 
-go 1.25.12
+go 1.25.13
 
 require (
 	github.com/coder/websocket v1.8.15

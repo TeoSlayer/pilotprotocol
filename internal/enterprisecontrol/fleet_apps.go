@@ -88,6 +88,12 @@ func (installer PilotctlInstaller) Install(ctx context.Context, appID, version, 
 	if strings.TrimSpace(version) != "" {
 		arguments = append(arguments, "--version", version)
 	}
+	// #nosec G204 -- BinaryPath is the pilotctl shipped beside this daemon, and
+	// every argument originates in an authority-signed desired document that
+	// readDesiredApps has already run through FleetAppsDocument.Validate. That
+	// bounds the app id to fleetAppIDPattern and the version to
+	// fleetAppVersionPattern, neither of which admits a shell metacharacter or
+	// a leading dash, and CommandContext invokes no shell.
 	command := exec.CommandContext(ctx, installer.BinaryPath, arguments...)
 	command.Env = append(os.Environ(), "PILOT_APPSTORE_ROOT="+root)
 	output, err := command.CombinedOutput()
@@ -104,6 +110,8 @@ func (installer PilotctlInstaller) Remove(ctx context.Context, appID, root strin
 	}
 	ctx, cancel := context.WithTimeout(ctx, installer.timeout())
 	defer cancel()
+	// #nosec G204 -- same provenance as Install: a signed, validated app id
+	// matching fleetAppIDPattern, passed to the adjacent pilotctl without a shell.
 	command := exec.CommandContext(ctx, installer.BinaryPath, "appstore", "uninstall", appID, "--yes")
 	command.Env = append(os.Environ(), "PILOT_APPSTORE_ROOT="+root)
 	output, err := command.CombinedOutput()
