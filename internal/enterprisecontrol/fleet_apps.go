@@ -80,7 +80,15 @@ func (installer PilotctlInstaller) Install(ctx context.Context, appID, version, 
 	defer cancel()
 	// --force lets an install replace a wrong-version copy in place; the
 	// catalogue signature and sha256 gates still run either way.
-	command := exec.CommandContext(ctx, installer.BinaryPath, "appstore", "install", appID, "--force")
+	// The pinned version is passed through so the node installs what the
+	// operator approved. pilotctl fails closed when the catalogue has moved
+	// on, which surfaces as version_unavailable rather than silently
+	// installing whatever release happens to be current.
+	arguments := []string{"appstore", "install", appID, "--force"}
+	if strings.TrimSpace(version) != "" {
+		arguments = append(arguments, "--version", version)
+	}
+	command := exec.CommandContext(ctx, installer.BinaryPath, arguments...)
 	command.Env = append(os.Environ(), "PILOT_APPSTORE_ROOT="+root)
 	output, err := command.CombinedOutput()
 	if err != nil {
