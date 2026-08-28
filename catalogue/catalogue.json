@@ -592,10 +592,14 @@
       "bundle_sha256": "9e1d05248b99dd66e1482aeda23ece61b2b110601c7848e3fb716f4a79ba47b6",
       "display_name": "Insforge",
       "vendor": "InsForge",
-      "categories": [],
+      "categories": [
+        "developer-tools",
+        "data",
+        "storage"
+      ],
       "bundle_size": 5113957,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
-      "license": "",
+      "license": "Apache-2.0",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.insforge/metadata.json",
       "metadata_sha256": "d5a07ebbf6c2a839a088e9934db807bed5a373ea4b4587a16cb03d70f182efd3",
       "bundles": {
@@ -666,10 +670,14 @@
       "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
       "display_name": "MySQL",
       "vendor": "Pilot Protocol",
-      "categories": [],
+      "categories": [
+        "database",
+        "data",
+        "sql"
+      ],
       "bundle_size": 5359647,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
-      "license": "",
+      "license": "GPL-2.0",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
       "metadata_sha256": "eee2c5eb97834631a4d1c72448a6964aa0909e8a395d116c73c3fe3884366f64",
       "bundles": {
@@ -700,10 +708,16 @@
       "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
       "display_name": "Didit",
       "vendor": "Didit",
-      "categories": [],
+      "categories": [
+        "identity",
+        "verification",
+        "compliance",
+        "security",
+        "kyc"
+      ],
       "bundle_size": 5130067,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
-      "license": "",
+      "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
       "metadata_sha256": "c0a063b0cb6a4c712b9dc88451152898bfce6b44b4af0757b2dd48480975df90",
       "bundles": {
@@ -734,10 +748,14 @@
       "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
       "display_name": "tldr",
       "vendor": "Pilot Protocol",
-      "categories": [],
+      "categories": [
+        "developer-tools",
+        "documentation",
+        "cli"
+      ],
       "bundle_size": 5355931,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
-      "license": "",
+      "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
       "metadata_sha256": "97d948f1ec27ddd7f05c4a785100ff4cb9a82adc1648c42533d49fbeb38083fd",
       "bundles": {
