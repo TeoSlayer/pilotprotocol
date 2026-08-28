@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "id": "com.comos-federation.connector",
+  "display_name": "ComOS Federation",
+  "tagline": "The ComOS federation's public surfaces, from Pilot.",
+  "description_md": "ComOS is an AI-native operating system for commerce, run by ComOS Federation Inc. A business runs as a tenant that composes platforms \u2014 retail, bookings, services, rentals, digital goods, shipping, messaging, and more \u2014 and AI agents reach every merchant on the network through one federated MCP endpoint.\n\nThis connector is a thin read-only client for that network's public surfaces. Each method proxies one tokenless tool on the federation gateway at `mcp.comos-federation.com`, over HTTPS, with a single `net.dial` grant to that host. It holds no credentials, keeps no state, and writes nothing.\n\nDiscovery and reads need no token. Selling on the network requires passing an admittance door; `comos.offer` returns the current offer and how to apply directly at the gateway. This connector never performs admission.\n\nCost of the connector: none. Cost on the network: free to join and operate; 6% when buying Coms; 3% when a sale settles. No subscription, no seat, no minimum.",
+  "vendor": {
+    "name": "ComOS Federation, Inc.",
+    "url": "https://comos-federation.com",
+    "publisher_pubkey": "ed25519:IB9iTy70SyMHnQjG1rMtOoXf3KIE3uDZpElGpBw5fUw="
+  },
+  "homepage": "https://comos-federation.com",
+  "source_url": "https://github.com/ronrey/comos-pilot-connector",
+  "license": "AGPL-3.0-or-later",
+  "categories": [
+    "commerce",
+    "retail",
+    "payments"
+  ],
+  "keywords": [
+    "comos",
+    "commerce",
+    "federation",
+    "mcp",
+    "retail",
+    "bookings"
+  ],
+  "size": {
+    "bundle_bytes": 2542631
+  },
+  "compat": {
+    "min_pilot_version": "1.0.0",
+    "runtimes": [
+      "go"
+    ]
+  },
+  "methods": [
+    {
+      "name": "comos.help",
+      "summary": "Usage guide for the federation gateway: list, enter, use."
+    },
+    {
+      "name": "comos.why",
+      "summary": "Why the federation exists, from its own motivation surface."
+    },
+    {
+      "name": "comos.offer",
+      "summary": "The standing offer to vendors and how to apply for admission."
+    },
+    {
+      "name": "comos.search",
+      "summary": "Route an intent to the platforms that serve it."
+    },
+    {
+      "name": "comos.platforms",
+      "summary": "The composable platform catalog."
+    },
+    {
+      "name": "comos.agents",
+      "summary": "The agent-level catalog."
+    },
+    {
+      "name": "comos.arena",
+      "summary": "Settlement-signed reputation leaderboard."
+    },
+    {
+      "name": "comos.pricesheet",
+      "summary": "Per-act prices; reading it is always free."
+    },
+    {
+      "name": "comos.latency",
+      "summary": "Measured p50/p95/p99 of recent gateway calls."
+    },
+    {
+      "name": "comos.solvency",
+      "summary": "Whether the Com float is backed, without naming tenants."
+    },
+    {
+      "name": "comos.governance",
+      "summary": "How resident agents are governed: autonomy ladder, clamps, standing."
+    },
+    {
+      "name": "comos.legal",
+      "summary": "Terms, privacy, DPA, retention \u2014 the served legal instruments."
+    }
+  ],
+  "changelog": [
+    {
+      "version": "0.1.0",
+      "date": "2026-08-28",
+      "notes": [
+        "Initial release: 12 read-only methods proxying the federation gateway's public tools."
+      ]
+    }
+  ],
+  "links": [
+    {
+      "label": "Machine-readable overview (llms.txt)",
+      "url": "https://mcp.comos-federation.com/llms.txt"
+    },
+    {
+      "label": "AI guide (ai.txt)",
+      "url": "https://mcp.comos-federation.com/ai.txt"
+    }
+  ],
+  "published_at": "2026-08-28T21:00:00Z",
+  "updated_at": "2026-08-28T21:00:00Z"
+}
