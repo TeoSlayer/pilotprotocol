@@ -63,6 +63,10 @@
     {
       "name": "rentahuman.help",
       "summary": "Discovery: every method with params, latency, and description."
+    },
+    {
+      "name": "rentahuman.balance",
+      "summary": "Your remaining Pilot budget for this app, read free from the broker's per-user credit ledger — returns {\"balance\":\"$X.XX\",\"credits_remaining\":<micro-$>,\"credits_seed\":<micro-$>,\"unit\":\"micro_usd\",\"scope\":\"per-pilot-user\"}. This is YOUR budget, not the shared account's. No partner API call, no charge, and never a 402. The same figure also rides on the X-Pilot-Credits-Remaining header of every metered response; call this when you just want to check what's left before a spend."
     }
   ],
   "links": [
