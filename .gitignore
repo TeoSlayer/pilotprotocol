@@ -193,3 +193,4 @@ tests/integration/local/logs/
 tests/integration/local/.runs/
 tests/integration/logs-run.out
 tests/integration/logs-run*.out
+.gstack/

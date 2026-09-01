@@ -48,6 +48,7 @@ type NodeEnrollmentOptions struct {
 	ActionControl bool `json:"action_control"`
 	FleetControl  bool `json:"fleet_control"`
 	StateSync     bool `json:"state_sync"`
+	Apps          bool `json:"apps"`
 }
 
 // NodeEnrollmentClaimResponse is the atomic one-time response consumed by

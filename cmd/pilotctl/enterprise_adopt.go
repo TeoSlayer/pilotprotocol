@@ -300,6 +300,22 @@ func installEnrolledAttachment(outputDirectory string, claim authorityhttp.NodeE
 			config.Fleet.StateDirectory = "state"
 		}
 	}
+	// App reconciliation converges the installed set toward the desired
+	// document the App Store writes into fleet state. It is gated on state
+	// sync because both the desired document and the observed report travel
+	// as fleet state; without it the node would accept the option and then
+	// silently never reconcile.
+	if claim.Options.Apps && claim.Options.FleetControl && claim.Options.StateSync {
+		config.Apps = &enterprisecontrol.AppsConfig{
+			Enabled: true,
+			// Left to the runtime defaults: apps install under ~/.pilot/apps
+			// and stage under ~/.pilot/apps-pending, which the runtime already
+			// enforces as siblings so a staged app is never inside the root the
+			// supervisor scans and can never be started before its grants are
+			// accepted.
+			ReconcileIntervalSeconds: 30,
+		}
+	}
 	controlPath := filepath.Join(stage, "enterprise-control.json")
 	if err := writeAdoptionJSON(controlPath, config); err != nil {
 		return "", err
