@@ -55,7 +55,7 @@
         "enrichment",
         "sales-intelligence"
       ],
-      "bundle_size": 4898153,
+      "bundle_size": 5058693,
       "source_url": "https://docs.sixtyfour.ai",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.sixtyfour/metadata.json",
@@ -95,8 +95,10 @@
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/ideon-free-v0.3.1/io.telepat.ideon-free-0.3.1.tar.gz",
       "bundle_sha256": "dd8e37057f33eadefff6b7ff5fc99130667076ea398c10a154c345fd87dd1ad6",
       "publisher": "ed25519:5cqj+zTVecj8r0YRUShpgFi/g7TxDg1lkDKQzfNyDyc=",
-      "metadata_sha256": "cbd6adae25a432d33dea9d4a047645b1e6d920a4bae2c4897b9f14fe2c004347",
-      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.telepat.ideon-free/metadata.json"
+      "metadata_sha256": "ed6e77ae5c95a8fc13c6afd8d6430d892d75ae35563ff6a6b08fca265d0365ae",
+      "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.telepat.ideon-free/metadata.json",
+      "bundle_size": 5069,
+      "display_name": "Ideon (Free)"
     },
     {
       "id": "io.pilot.slipstream",
@@ -158,7 +160,13 @@
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.miren/metadata.json",
       "metadata_sha256": "3fe0a4e6628271b963f4e3ddf9cb7bbcf6bf41377eb2a8d29b7e82e3b7153990",
-      "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU="
+      "publisher": "ed25519:uOzIK15+q/Iy67FASGoOEPg53vZo285/szq9v7PuksU=",
+      "categories": [
+        "infrastructure",
+        "devops",
+        "platform"
+      ],
+      "bundle_size": 5352460
     },
     {
       "id": "io.pilot.otto",
@@ -190,7 +198,13 @@
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.otto/metadata.json",
       "metadata_sha256": "d3078d3b7e33720d186d9f0f2967b98ee6de7bd2af7d404b160cf98c0278db59",
-      "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w="
+      "publisher": "ed25519:mTyrd5ZG/tl76CLpdUEaaGvCjrnE6QLHPVm7XrduH/w=",
+      "categories": [
+        "automation",
+        "browser",
+        "web"
+      ],
+      "bundle_size": 5355850
     },
     {
       "id": "io.pilot.plainweb",
@@ -222,7 +236,13 @@
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.plainweb/metadata.json",
       "metadata_sha256": "054bdbbda3caf578d9e11c6a80d402d0b113c7619c199b518c5dea8a044c7f0d",
-      "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE="
+      "publisher": "ed25519:9oZGhTSuJJ5xaePW89I9QSOnyp8p83igvGj0jEUuLoE=",
+      "categories": [
+        "web",
+        "content",
+        "markdown"
+      ],
+      "bundle_size": 5035085
     },
     {
       "id": "io.pilot.postgres",
@@ -253,8 +273,14 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.postgres/metadata.json",
-      "metadata_sha256": "0ab00cf5dd92c9da2920f655b3d4f7bfc1f72aedc2f56489062415fff9534987",
-      "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U="
+      "metadata_sha256": "7025f0ba63c983747ac427344b3b4b2ca364281f11e9c1deb5c10e08b8ac96cc",
+      "publisher": "ed25519:N1uQkAJ355xY9RSj5Q8/y9Y+PIIjLzPB47PAl1vdw2U=",
+      "categories": [
+        "database",
+        "data",
+        "sql"
+      ],
+      "bundle_size": 5302666
     },
     {
       "id": "io.pilot.duckdb",
@@ -460,7 +486,7 @@
       "source_url": "https://github.com/bowmark-ai/plugin",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.bowmark/metadata.json",
-      "metadata_sha256": "2d979d11d9007b38002c8b609a18c3e8998333c4b31e32ce8b4fe781e7375548",
+      "metadata_sha256": "7baf0622f6cd7b1074d0d834716be6c9f09db681b9e59feca2c1bece5fc69bfb",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.bowmark/1.0.1/io.pilot.bowmark-1.0.1-linux-amd64.tar.gz",
@@ -548,8 +574,15 @@
         }
       },
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.agentphone/metadata.json",
-      "metadata_sha256": "d1b5fea717be1a3c21fc3fcf38c23362b8a727502e822c23dd3c831dab950823",
-      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc="
+      "metadata_sha256": "63a1fb66424e594e8cef80c00a52e1c61415a7193768c3ac7507342df5e7f44b",
+      "publisher": "ed25519:mvVzYABubZwOTzWWQA/TDbRLYkKzmD/x6k/w0nz+zHc=",
+      "categories": [
+        "communication",
+        "phone",
+        "voice",
+        "messaging"
+      ],
+      "bundle_size": 2665282
     },
     {
       "id": "io.pilot.insforge",
@@ -559,12 +592,16 @@
       "bundle_sha256": "9e1d05248b99dd66e1482aeda23ece61b2b110601c7848e3fb716f4a79ba47b6",
       "display_name": "Insforge",
       "vendor": "InsForge",
-      "categories": [],
+      "categories": [
+        "developer-tools",
+        "data",
+        "storage"
+      ],
       "bundle_size": 5113957,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.insforge",
-      "license": "",
+      "license": "Apache-2.0",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.insforge/metadata.json",
-      "metadata_sha256": "0e6be7219bf8172323bbbc8a60742159e8c7e6f1a9de18521a69b53164f11b1c",
+      "metadata_sha256": "d5a07ebbf6c2a839a088e9934db807bed5a373ea4b4587a16cb03d70f182efd3",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.insforge/1.0.0/io.pilot.insforge-1.0.0-linux-amd64.tar.gz",
@@ -593,12 +630,18 @@
       "bundle_sha256": "3f2c9bfc009e41898b36ff2e88a313c0c3bc8bb39500f9673572a1d40b84fac7",
       "display_name": "Orthogonal",
       "vendor": "Orthogonal",
-      "categories": [],
+      "categories": [
+        "data",
+        "search",
+        "enrichment",
+        "scraping",
+        "ai"
+      ],
       "bundle_size": 5073695,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.orthogonal",
-      "license": "",
+      "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.orthogonal/metadata.json",
-      "metadata_sha256": "1f75f953e0ee3db5dfc11103dc1c6ba4c70362ee52fa351898a699c88b771b39",
+      "metadata_sha256": "7404f92e42df6d3c52edf663e995c27a11b6b0d690ca02228f01e4b81e88266a",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.orthogonal/0.1.1/io.pilot.orthogonal-0.1.1-linux-amd64.tar.gz",
@@ -625,14 +668,18 @@
       "description": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
       "bundle_sha256": "74e57bee2b99cbef1cc10a1120894c6872027766509f0d8d4b252b93d1d0a9e1",
-      "display_name": "Mysql",
+      "display_name": "MySQL",
       "vendor": "Pilot Protocol",
-      "categories": [],
+      "categories": [
+        "database",
+        "data",
+        "sql"
+      ],
       "bundle_size": 5359647,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.mysql",
-      "license": "",
+      "license": "GPL-2.0",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.mysql/metadata.json",
-      "metadata_sha256": "3349fa791d2379ba5b484b96425cf137b1f108382ae6193f62e76c6ffeadfb63",
+      "metadata_sha256": "eee2c5eb97834631a4d1c72448a6964aa0909e8a395d116c73c3fe3884366f64",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.mysql/9.7.1/io.pilot.mysql-9.7.1-linux-amd64.tar.gz",
@@ -661,12 +708,18 @@
       "bundle_sha256": "57c63cf5c51c10871273126b408dae17e2c4cffc5330342d96c648ca95aa29d5",
       "display_name": "Didit",
       "vendor": "Didit",
-      "categories": [],
+      "categories": [
+        "identity",
+        "verification",
+        "compliance",
+        "security",
+        "kyc"
+      ],
       "bundle_size": 5130067,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.didit",
-      "license": "",
+      "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.didit/metadata.json",
-      "metadata_sha256": "678ca368b4c2ed6f9f526f35d7a3de07f5a196abccdf76247b281afef9e47978",
+      "metadata_sha256": "c0a063b0cb6a4c712b9dc88451152898bfce6b44b4af0757b2dd48480975df90",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.didit/1.0.0/io.pilot.didit-1.0.0-linux-amd64.tar.gz",
@@ -693,14 +746,18 @@
       "description": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
       "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
       "bundle_sha256": "0e73bc90fcf6fd62972cf08171b2c8e56cd2adf43b42e01afdb529f084bc1407",
-      "display_name": "Tldr",
+      "display_name": "tldr",
       "vendor": "Pilot Protocol",
-      "categories": [],
+      "categories": [
+        "developer-tools",
+        "documentation",
+        "cli"
+      ],
       "bundle_size": 5355931,
       "source_url": "https://github.com/pilot-protocol/app-template/tree/main/submissions/io.pilot.tldr",
-      "license": "",
+      "license": "MIT",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.tldr/metadata.json",
-      "metadata_sha256": "548e514a25962da0dcced8ead25c7ceb3690c31784a9ab31f061d185dcbd1662",
+      "metadata_sha256": "97d948f1ec27ddd7f05c4a785100ff4cb9a82adc1648c42533d49fbeb38083fd",
       "bundles": {
         "linux/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.tldr/1.13.1/io.pilot.tldr-1.13.1-linux-amd64.tar.gz",
@@ -850,7 +907,7 @@
       "source_url": "https://kineticpricing.com",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.kinetic/metadata.json",
-      "metadata_sha256": "0a471b165f5b54f1ca36065e978206ffa5d8bb4acf12eec61683781b675936f0",
+      "metadata_sha256": "413fa3c1a41bcf2520e156cedc6b7d36c66e69fe2ea6a7a349a1fcbb219f6593",
       "bundles": {
         "darwin/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.kinetic/1.0.0/io.pilot.kinetic-1.0.0-darwin-amd64.tar.gz",
@@ -888,7 +945,7 @@
       "source_url": "https://rentahuman.ai/docs/partners",
       "license": "Proprietary",
       "metadata_url": "https://raw.githubusercontent.com/pilot-protocol/pilotprotocol/main/catalogue/apps/io.pilot.rentahuman/metadata.json",
-      "metadata_sha256": "caef5d6bee521e47033c634930efde9ca61a7455acb7cb2e4f8fac36681efded",
+      "metadata_sha256": "619e189a77049c7d874764ae4ec02a167d15a541ed802be0d770c250157119f9",
       "bundles": {
         "darwin/amd64": {
           "bundle_url": "https://pub-f09f9a4ea848491198d48e329ba030e3.r2.dev/bundles/io.pilot.rentahuman/0.2.0/io.pilot.rentahuman-0.2.0-darwin-amd64.tar.gz",

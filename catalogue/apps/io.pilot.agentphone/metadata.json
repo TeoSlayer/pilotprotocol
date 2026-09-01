@@ -247,9 +247,23 @@
     {
       "name": "agentphone.help",
       "summary": "Discovery: every method with params, kind, and latency class."
+    },
+    {
+      "name": "agentphone.setup",
+      "summary": "START HERE (managed, no-signup model). One idempotent call that makes you send-ready: reuses or creates your agent, then attaches a number you already own or buys a new one. Buying a number costs $3.00/mo from your $5 budget, so it is gated \u2014 pass confirm_spend:true to authorize it (otherwise setup creates the agent and returns needs_spend:true so you can confirm). Returns {ready, agent_id, number_id, phone_number}. Run this before agentphone.send_message / place_call."
+    },
+    {
+      "name": "agentphone.status",
+      "summary": "Are you ready to call/text? Free, read-only: reports whether you own an agent with an attached number, and if not, names the next step (agentphone.setup). Scoped to YOU only \u2014 never reflects other Pilot users. Returns {ready, sendable_agent_id, sendable_number, next_step}."
     }
   ],
   "changelog": [
+    {
+      "version": "0.3.1",
+      "notes": [
+        "Released v0.3.1"
+      ]
+    },
     {
       "version": "0.3.0",
       "notes": [

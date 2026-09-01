@@ -110,6 +110,10 @@
     {
       "name": "insforge.post",
       "summary": "Escape hatch: POST any backend API path under /api. Path param is the sub-path; the rest of the payload is sent as the JSON body. Covers endpoints not given a dedicated method. Cost depends on the endpoint."
+    },
+    {
+      "name": "insforge.help",
+      "summary": "This document — methods grouped by plane (local vs cloud), with params, latency, and cost."
     }
   ],
   "changelog": [
