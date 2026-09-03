@@ -92,6 +92,10 @@
     {
       "name": "postgres.version",
       "summary": "Print the delivered client version, e.g"
+    },
+    {
+      "name": "postgres.help",
+      "summary": "This document — every method with params, kind, and duration class."
     }
   ],
   "changelog": [

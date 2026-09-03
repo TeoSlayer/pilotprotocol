@@ -348,6 +348,37 @@ const (
 // `target` matches a catalogue ID, the catalogue entry is fetched,
 // verified, and unpacked. Otherwise `target` is treated as a local
 // path and the caller is expected to apply sideload policy.
+// ErrCatalogueVersionUnavailable means the catalogue no longer offers the
+// version the caller pinned. The catalogue carries only the current release of
+// each app, so a pin that has moved on cannot be satisfied — and installing the
+// version that happens to be current instead would silently give a node
+// software its operator never approved.
+var ErrCatalogueVersionUnavailable = errors.New("catalogue does not offer the requested version")
+
+// resolveInstallTargetVersion resolves target, and when wantVersion is set it
+// refuses any catalogue entry that does not match it exactly.
+func resolveInstallTargetVersion(target, wantVersion string) (string, installSource, error) {
+	if strings.TrimSpace(wantVersion) == "" {
+		return resolveInstallTarget(target)
+	}
+	c, err := loadCatalogue()
+	if err == nil {
+		for _, e := range c.Apps {
+			if target != e.ID {
+				continue
+			}
+			if e.Version != wantVersion {
+				return "", installSourceCatalogue, fmt.Errorf("%w: %s offers %q, not %q", ErrCatalogueVersionUnavailable, e.ID, e.Version, wantVersion)
+			}
+			dir, fetchErr := fetchAndUnpackBundle(e)
+			return dir, installSourceCatalogue, fetchErr
+		}
+	}
+	// A pinned version only means anything against the signed catalogue; a
+	// local sideload has no version to check it against.
+	return "", installSourceLocal, fmt.Errorf("%w: %s is not in the catalogue", ErrCatalogueVersionUnavailable, target)
+}
+
 func resolveInstallTarget(target string) (string, installSource, error) {
 	c, err := loadCatalogue()
 	if err != nil {

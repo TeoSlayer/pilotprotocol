@@ -11,6 +11,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -568,6 +569,23 @@ func main() {
 		}()
 	}
 
+	if enterpriseControls.HasAppReconcile() {
+		appInstaller := enterprisecontrol.PilotctlInstaller{BinaryPath: pilotctlBinaryPath()}
+		reconcileApps(fleetControlCtx, enterpriseControls, appInstaller)
+		go func() {
+			ticker := time.NewTicker(enterpriseControls.AppReconcileInterval())
+			defer ticker.Stop()
+			for {
+				select {
+				case <-fleetControlCtx.Done():
+					return
+				case <-ticker.C:
+					reconcileApps(fleetControlCtx, enterpriseControls, appInstaller)
+				}
+			}
+		}()
+	}
+
 	receiptExportCtx, receiptExportCancel := context.WithCancel(context.Background())
 	if enterpriseControls.HasReceiptExport() {
 		if err := enterpriseControls.ExportReceiptsOnce(receiptExportCtx); err != nil {
@@ -766,6 +784,39 @@ func synchronizeFleetControl(ctx context.Context, controls *enterprisecontrol.Ru
 				slog.Warn("fleet lifecycle request already pending", "command_id", command.ID)
 			}
 		}
+	}
+}
+
+// pilotctlBinaryPath resolves the pilotctl that ships beside this daemon.
+// Preferring the sibling binary over $PATH keeps the verified install path
+// pinned to the same release as the daemon rather than to whatever a user
+// happens to have earlier in their environment.
+func pilotctlBinaryPath() string {
+	if executable, err := os.Executable(); err == nil {
+		sibling := filepath.Join(filepath.Dir(executable), "pilotctl")
+		if info, statErr := os.Stat(sibling); statErr == nil && !info.IsDir() {
+			return sibling
+		}
+	}
+	if resolved, err := exec.LookPath("pilotctl"); err == nil {
+		return resolved
+	}
+	return "pilotctl"
+}
+
+// reconcileApps converges installed apps toward the authority's desired set.
+// A failure here must never disturb policy enforcement or the state mirror, so
+// it is logged and retried on the next tick rather than propagated.
+func reconcileApps(ctx context.Context, controls *enterprisecontrol.Runtime, installer enterprisecontrol.AppInstaller) {
+	result, err := controls.ReconcileApps(ctx, installer)
+	if err != nil {
+		slog.Warn("managed app reconcile failed", "err", err)
+		return
+	}
+	if result.Installed+result.Staged+result.Removed+result.Failed > 0 {
+		slog.Info("managed apps reconciled",
+			"desired", result.Desired, "installed", result.Installed,
+			"awaiting_grants", result.Staged, "removed", result.Removed, "failed", result.Failed)
 	}
 }
 

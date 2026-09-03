@@ -69,23 +69,17 @@
       "summary": "Orthogonal account credit balance (string '$X.XX'). FREE, read-only. Note: your per-user $5 Pilot budget is metered separately by the broker and is surfaced in the X-Pilot-Credits-Remaining header on every call — that header, not this account balance, is your personal remaining budget."
     },
     {
-      "name": "orthogonal.check",
-      "summary": "Preflight the shared account: does it hold ≥ amountCents credits? (amountCents is in Orthogonal credit units = dollars × 100000, so $5 = 500000). FREE."
-    },
-    {
-      "name": "orthogonal.transactions",
-      "summary": "Account transaction ledger — purchases, API charges, bonuses, refunds — with amounts, direction and timestamps, paginated. FREE, read-only. Amounts are in the credits unit (dollars × 100000)."
-    },
-    {
-      "name": "orthogonal.usage",
-      "summary": "Per-call spend history plus totalSpent over a window (dollar strings), for the shared account. FREE, read-only."
-    },
-    {
       "name": "orthogonal.help",
       "summary": "Discovery: every method with params, kind, and latency class."
     }
   ],
   "changelog": [
+    {
+      "version": "0.1.1",
+      "notes": [
+        "Released v0.1.1"
+      ]
+    },
     {
       "version": "0.1.0",
       "notes": [

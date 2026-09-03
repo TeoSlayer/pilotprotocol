@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "io.pilot.tldr",
-  "display_name": "Tldr",
+  "display_name": "tldr",
   "tagline": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+",
   "description_md": "tldr (tlrc 1.13.1) as native, example-first documentation for agents: simplified, community-driven man pages for ~7,350+ command-line tools, delivered to the host and fronted as typed methods. Look up a command's cheat-sheet as clean text or raw Markdown, search the whole catalog by keyword, list the directory of documented tools, refresh or inspect the local cache, render a local page, and reach every client flag (--platform, --language, --list-all, --offline, …) via a verbatim-argv passthrough. Open source — MIT client, CC-BY-4.0 pages — self-contained and offline after the first fetch, on macOS and Linux.",
   "vendor": {
@@ -58,6 +58,10 @@
     {
       "name": "tldr.version",
       "summary": "Print the delivered client and tldr-client-spec version, e.g. \"tlrc v1.13.1 (implementing the tldr client specification v2.3)\". Needs no cache. This is `tldr --version`."
+    },
+    {
+      "name": "tldr.help",
+      "summary": "This document — methods grouped by plane (local vs cloud), with params, latency, and cost."
     }
   ],
   "changelog": [

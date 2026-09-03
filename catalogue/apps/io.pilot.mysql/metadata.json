@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "io.pilot.mysql",
-  "display_name": "Mysql",
+  "display_name": "MySQL",
   "tagline": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely local",
   "description_md": "MySQL 9.7.1 server + client as a native CLI for agents: a full, real client/server SQL database that runs entirely locally with no cloud account and no provisioning. Initialize a data directory, start a server on 127.0.0.1, create databases, and run SQL — results as an aligned table or TSV — with the actual InnoDB engine (transactions, foreign keys, triggers, JSON, window functions). Lifecycle (initialize/start/stop/ping), createdb, query/query_tsv, databases/tables listing, mysqldump, and the full tool surface via a verbatim-argv passthrough. The transactional server-grade sibling of io.pilot.sqlite and io.pilot.postgres.",
   "vendor": {
@@ -70,6 +70,10 @@
     {
       "name": "mysql.version",
       "summary": "Print the delivered MySQL version, e.g. \"mysql  Ver 9.7.1 for … (conda-forge)\". This is `mysql --version`."
+    },
+    {
+      "name": "mysql.help",
+      "summary": "This document — methods grouped by plane (local vs cloud), with params, latency, and cost."
     }
   ],
   "changelog": [

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "io.telepat.ideon-free",
-  "display_name": "Ideon-free",
+  "display_name": "Ideon (Free)",
   "description_md": "Free article generation for agents: ideon-free.generate(idea) returns a jobId; ideon-free.poll(jobId) returns the finished markdown article. Thin adapter over Ideon's ideon_write — no payment.",
   "vendor": {
     "name": ""
@@ -20,6 +20,14 @@
     {
       "name": "ideon-free.help",
       "summary": "Discovery: every method with params, kind, and latency class."
+    },
+    {
+      "name": "ideon-free.generate",
+      "summary": "Start an article generation job from a one-line idea. Returns a jobId to poll. Free \u2014 no payment."
+    },
+    {
+      "name": "ideon-free.poll",
+      "summary": "Poll a jobId returned by ideon-free.generate; returns the finished markdown article once ready. Free \u2014 no payment."
     }
   ],
   "changelog": [

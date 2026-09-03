@@ -48,6 +48,7 @@ type Config struct {
 	Receipts          *ReceiptConfig           `json:"receipts,omitempty"`
 	Rollout           *RolloutConfig           `json:"rollout,omitempty"`
 	Fleet             *FleetConfig             `json:"fleet,omitempty"`
+	Apps              *AppsConfig              `json:"apps,omitempty"`
 	OutboundDecisions *OutboundDecisionConfig  `json:"outbound_decisions,omitempty"`
 	ActionControl     *ActionControlConfig     `json:"action_control,omitempty"`
 	ContentInspection *ContentInspectionConfig `json:"content_inspection,omitempty"`
@@ -277,6 +278,12 @@ type Runtime struct {
 	fleetStateRevision             uint64
 	fleetStateRootHash             string
 	fleetStatePendingResults       []authority.FleetStateMutationResult
+	appsEnabled                    bool
+	appsInterval                   time.Duration
+	appsInstallRoot                string
+	appsStagingRoot                string
+	appsMu                         sync.Mutex
+	appsManaged                    map[string]struct{}
 	outboundClient                 *decisionhttp.Client
 	outboundAgentID                string
 	outboundKeyID                  string
@@ -634,6 +641,42 @@ func Load(path string) (*Runtime, error) {
 			if runtime.fleetStateInterval == 0 {
 				runtime.fleetStateInterval = 5 * time.Second
 			}
+		}
+	}
+	if config.Apps != nil && config.Apps.Enabled {
+		// Apps ride on the state mirror: the desired document arrives as an
+		// ordinary signed state mutation, so without state sync there is no
+		// channel to receive one and nothing to reconcile toward.
+		if !runtime.fleetStateEnabled {
+			return nil, fmt.Errorf("enterprise control: app reconciliation requires fleet state sync")
+		}
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil && (config.Apps.InstallRoot == "" || config.Apps.StagingRoot == "") {
+			return nil, fmt.Errorf("enterprise control: app roots: %w", homeErr)
+		}
+		installRoot := strings.TrimSpace(config.Apps.InstallRoot)
+		if installRoot == "" {
+			installRoot = filepath.Join(home, ".pilot", "apps")
+		}
+		stagingRoot := strings.TrimSpace(config.Apps.StagingRoot)
+		if stagingRoot == "" {
+			// Deliberately a sibling of the install root, never inside it: the
+			// supervisor scans the install root, and an app awaiting grant
+			// acceptance must be somewhere it will not be spawned from.
+			stagingRoot = filepath.Join(home, ".pilot", "apps-pending")
+		}
+		if installRoot == stagingRoot {
+			return nil, fmt.Errorf("enterprise control: app staging_root must differ from install_root")
+		}
+		if withinDirectory(installRoot, stagingRoot) {
+			return nil, fmt.Errorf("enterprise control: app staging_root must not sit inside install_root")
+		}
+		runtime.appsEnabled = true
+		runtime.appsInstallRoot, runtime.appsStagingRoot = installRoot, stagingRoot
+		runtime.appsManaged = make(map[string]struct{})
+		runtime.appsInterval = time.Duration(config.Apps.ReconcileIntervalSeconds) * time.Second
+		if runtime.appsInterval == 0 {
+			runtime.appsInterval = 30 * time.Second
 		}
 	}
 	if config.DataExchange != nil {

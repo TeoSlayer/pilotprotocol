@@ -1037,16 +1037,26 @@ func resolveUnder(base, rel string) (string, error) {
 func cmdAppStoreInstall(args []string) {
 	if len(args) < 1 {
 		fatalHint("invalid_argument",
-			"usage: pilotctl appstore install <app-id-or-dir> [--force] [--local]",
+			"usage: pilotctl appstore install <app-id-or-dir> [--force] [--local] [--version <v>]",
 			"missing app id or bundle dir")
 	}
 	target := args[0]
 	force := false
+	wantVersion := ""
 	allowLocal := false
 	for i := 1; i < len(args); i++ {
 		switch args[i] {
 		case "--force", "-f":
 			force = true
+		case "--version":
+			// Read the value before advancing so the bound is checked against
+			// the index actually used.
+			if i+1 >= len(args) {
+				fatalHint("invalid_argument", "usage: --version <exact-catalogue-version>", "--version needs a value")
+				return
+			}
+			wantVersion = args[i+1]
+			i++
 		case "--local":
 			// Required acknowledgement when installing from a local
 			// directory. Catalogue installs ignore this; path installs
@@ -1056,7 +1066,7 @@ func cmdAppStoreInstall(args []string) {
 			allowLocal = true
 		default:
 			fatalHint("invalid_argument",
-				"available flags: --force, --local",
+				"available flags: --force, --local, --version",
 				"unknown install flag: %s", args[i])
 		}
 	}
@@ -1065,8 +1075,16 @@ func cmdAppStoreInstall(args []string) {
 	// Catalogue path = signed, runs the standard signature gate.
 	// Local path = sideload, requires --local AND must satisfy the
 	// sideload allow-list before the supervisor will load it.
-	bundleDir, source, err := resolveInstallTarget(target)
+	bundleDir, source, err := resolveInstallTargetVersion(target, wantVersion)
 	if err != nil {
+		if errors.Is(err, ErrCatalogueVersionUnavailable) {
+			// Distinct from a bad argument: the caller asked for a version the
+			// catalogue no longer carries. Installing whatever is current
+			// instead would hand a node software nobody approved.
+			fatalHint("version_unavailable",
+				"the catalogue carries only each app's current release; re-approve the app to move the pinned version forward",
+				"%v", err)
+		}
 		fatalHint("invalid_argument",
 			"the argument must be either a catalogue ID (`pilotctl appstore catalogue` to list) or a path to a bundle dir containing manifest.json",
 			"%v", err)
