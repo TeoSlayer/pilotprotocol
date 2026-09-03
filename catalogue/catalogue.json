@@ -1010,6 +1010,32 @@
       "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/generallegal-v0.1.0/io.pilot.generallegal-0.1.0-linux-amd64.tar.gz",
       "bundle_sha256": "9136d92a1d0fbe99067f2413cecf17466373cf432b3be92b264124ed8cb9c0c0",
       "publisher": "ed25519:Tl5OtWqZUPSGJkt7+Z2uOk+0YjvlxBsQdN9Rp6ZI3lE="
+    },
+    {
+      "id": "com.comos-federation.connector",
+      "version": "0.1.0",
+      "description": "Read-only access to public ComOS Federation discovery, pricing, performance, solvency, governance, and legal surfaces.",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/comos-v0.1.0/com.comos-federation.connector-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "d6d5ea8917cc41a8a90f9ce9b7980d97fddf86bc1b1dfd934b92b8bfc92cff5b",
+      "bundles": {
+        "linux/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/comos-v0.1.0/com.comos-federation.connector-0.1.0-linux-amd64.tar.gz",
+          "bundle_sha256": "d6d5ea8917cc41a8a90f9ce9b7980d97fddf86bc1b1dfd934b92b8bfc92cff5b"
+        },
+        "linux/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/comos-v0.1.0/com.comos-federation.connector-0.1.0-linux-arm64.tar.gz",
+          "bundle_sha256": "0df3f644db6416cb1d5265ed0a8b93432bcede0a413853d5f28fb5947bb1b0db"
+        },
+        "darwin/amd64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/comos-v0.1.0/com.comos-federation.connector-0.1.0-darwin-amd64.tar.gz",
+          "bundle_sha256": "fee02b5348aed47799792f0a8b04442a155117e838c58be8eca19ea2b53404ae"
+        },
+        "darwin/arm64": {
+          "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/comos-v0.1.0/com.comos-federation.connector-0.1.0-darwin-arm64.tar.gz",
+          "bundle_sha256": "40955be72710491059a5d4a4dd9ab1d34195356d75c4d7d824755a31c3f18852"
+        }
+      },
+      "publisher": "ed25519:IB9iTy70SyMHnQjG1rMtOoXf3KIE3uDZpElGpBw5fUw="
     }
   ]
 }
