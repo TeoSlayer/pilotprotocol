@@ -1002,6 +1002,14 @@
         }
       },
       "publisher": "ed25519:zIs4w96eibc78b08fI5FtJFSAliQ+veFSeBFThkFNjw="
+    },
+    {
+      "id": "io.pilot.generallegal",
+      "version": "0.1.0",
+      "description": "Attorney-backed contract review and Delaware company formation for agents. Flat-fee legal work from a licensed US law firm.",
+      "bundle_url": "https://github.com/pilot-protocol/catalog/releases/download/generallegal-v0.1.0/io.pilot.generallegal-0.1.0-linux-amd64.tar.gz",
+      "bundle_sha256": "9136d92a1d0fbe99067f2413cecf17466373cf432b3be92b264124ed8cb9c0c0",
+      "publisher": "ed25519:Tl5OtWqZUPSGJkt7+Z2uOk+0YjvlxBsQdN9Rp6ZI3lE="
     }
   ]
 }
